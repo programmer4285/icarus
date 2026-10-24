@@ -28,7 +28,7 @@ These rules come from `CLAUDE.md` and apply to every chunk, including the script
 1. No code comments.
 2. Colocate related code in the same file.
 3. Avoid folder and file sprawl.
-4. Use enums instead of string unions.
+4. Use enums instead of string unions in server code. Frontend code (`.svelte` files) uses string unions, since Svelte can't compile enums in components.
 5. Prefer `type` over `interface`.
 6. No tiny single-use helper functions. Prefer longer function bodies that contain the whole implementation.
 7. Simplicity.
