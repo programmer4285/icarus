@@ -71,20 +71,20 @@ What this means for the design:
 
 ## Tech stack
 
-| Concern       | Choice                                         | Notes                                                    |
-| ------------- | ---------------------------------------------- | -------------------------------------------------------- |
-| Web framework | SvelteKit 3 + Svelte 5 (runes)                 | Already scaffolded                                       |
-| Runtime       | Bun (`@sveltejs/adapter-bun`)                  | Already configured                                       |
-| Language      | TypeScript (strict)                            | Imports use the `#lib` alias from `package.json`         |
-| Lint/format   | oxlint, oxfmt via lefthook                     | Already configured                                       |
-| Styling       | Plain CSS                                      |                                                          |
-| Downloader    | `yt-dlp` + `ffmpeg`, via `scripts/download.sh` | Bash                                                     |
-| Tag editing   | `mutagen`, via `scripts/tags.py`               | Python 3. yt-dlp can also use it for `--embed-thumbnail` |
-| Job state     | In-memory array                                |                                                          |
-| Validation    | `zod`                                          | Env var schemas in `src/env.ts`                          |
-| Utilities     | `es-toolkit`                                   | `assert` for preconditions                               |
+| Concern       | Choice                                          | Notes                                                         |
+| ------------- | ----------------------------------------------- | ------------------------------------------------------------- |
+| Web framework | SvelteKit 3 + Svelte 5 (runes)                  | Already scaffolded                                            |
+| Runtime       | Bun (`@sveltejs/adapter-bun`)                   | Already configured                                            |
+| Language      | TypeScript (strict)                             | Imports use the `#lib` alias from `package.json`              |
+| Lint/format   | oxlint, oxfmt via lefthook                      | Already configured                                            |
+| Styling       | Plain CSS                                       |                                                               |
+| Downloader    | `yt-dlp` + `ffmpeg`, via `scripts/download.sh`  | Bash                                                          |
+| Tag editing   | `mutagen`, via `scripts/tags.py`, run with `uv` | Dependencies declared in the script, locked in `tags.py.lock` |
+| Job state     | In-memory array                                 |                                                               |
+| Validation    | `zod`                                           | Env var schemas in `src/env.ts`                               |
+| Utilities     | `es-toolkit`                                    | `assert` for preconditions                                    |
 
-**Local development (macOS):** `brew install yt-dlp ffmpeg` and `python3 -m pip install --user mutagen`. Homebrew's yt-dlp bundles its own copy of mutagen, but `tags.py` runs with your `python3`, so that one needs mutagen too.
+**Local development (macOS):** `brew install uv yt-dlp ffmpeg`. `tags.py` declares its own dependencies in an inline metadata block (PEP 723) and is run with `uv run scripts/tags.py …`, so uv installs mutagen into a cached environment automatically. `scripts/tags.py.lock` pins the exact version (`uv lock --script scripts/tags.py`).
 
 ## Code layout
 
@@ -100,7 +100,7 @@ src/
 │  ├─ jobs.ts                      JobStatus/JobKind enums, Job/Track types, job store, MAX_JOBS, queue, submitURL
 │  ├─ ytdlp.ts                     spawns download.sh, parses progress, playlist expansion
 │  ├─ files.ts                     listAudioFiles, resolveInLibrary
-│  └─ tags.ts                      Tags type, readTags/writeTags (spawn tags.py)
+│  └─ tags.ts                      Tags type, readTags/writeTags (spawn `uv run tags.py`)
 └─ routes/
    ├─ +layout.svelte               nav, imports app.css
    ├─ login/+page.svelte
@@ -125,7 +125,7 @@ The placeholder `downloads/` and `tagging/` folders get removed in chunk 2.
 │   ├─ routes ──► jobs.ts ──► ytdlp.ts ──► download.sh ──► yt-dlp  │
 │   │         ├─► files.ts                                         │
 │   │         └─► tags.ts ──► tags.py ──► mutagen                  │
-│  yt-dlp, ffmpeg, python3, mutagen (in image)                     │
+│  uv, yt-dlp, ffmpeg (in image)                                   │
 └───────────────┬──────────────────────────────────────────────────┘
                 │ bind mount
           host: ~/music        →  container: /music  (MUSIC_DIR)
@@ -321,7 +321,7 @@ Every path coming from the client is resolved against `MUSIC_DIR`. The request i
 
 **Page:** `/files/[...path]`
 
-**`tags.ts` exports** `readTags(path)` and `writeTags(path, tags)`. They spawn `tags.py` and pass data as JSON.
+**`tags.ts` exports** `readTags(path)` and `writeTags(path, tags)`. They spawn `uv run scripts/tags.py` and pass data as JSON.
 
 ### Fields
 
@@ -388,7 +388,9 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 
 - Multi-stage `Dockerfile`:
   1. `oven/bun` build stage: `bun install`, `bun run --bun build`. `adapter-bun` refuses to build unless Vite runs under Bun. **Known issue:** with Bun 1.3.4, Vite 8 and SvelteKit 3, the `--bun` build stops after "Analysing routes" and still exits 0, so no `build/` folder is written. Check this again before the Docker phase, and make the Dockerfile fail if `build/index.js` is missing.
-  2. Runtime stage: Bun, `ffmpeg`, `python3`, plus `yt-dlp` and `mutagen` installed with pip into a virtualenv on `PATH`. Copy `scripts/` in, and mark them executable.
+  2. Runtime stage: Bun, `ffmpeg` and `uv` (copied from the official `ghcr.io/astral-sh/uv` image).
+     - yt-dlp: `uv tool install 'yt-dlp[default]==<version>'`, with `UV_TOOL_BIN_DIR` on `PATH`. The `default` extra includes mutagen, which `--embed-thumbnail` uses.
+     - `tags.py`: copy `scripts/` in, then run `uv sync --script scripts/tags.py` at build time so mutagen is already installed and the first tag edit doesn't download anything. uv also installs Python if the image doesn't have it.
 - yt-dlp is pinned to a version, with a documented way to update it, since YouTube changes often break old releases. The `player-client=android` extractor arg is a workaround that may stop working as YouTube changes.
 - Runs as a non-root user. The UID and GID can be configured so files written to the mount have the right ownership on the host.
 - `docker-compose.yml` example:
@@ -460,7 +462,7 @@ Each chunk is a small, self-contained commit (ideally under ~100 lines) that pas
 
 ### Phase 6 — Docker
 
-1. Add a `Dockerfile` (build + runtime stages with yt-dlp, ffmpeg, python3, mutagen, and the scripts).
+1. Add a `Dockerfile` (build + runtime stages with uv, yt-dlp, ffmpeg, and the scripts).
 2. Add `docker-compose.yml` example plus README run instructions.
 3. Add non-root user with configurable UID/GID.
 
