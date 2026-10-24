@@ -386,7 +386,7 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 ## Docker
 
 - Multi-stage `Dockerfile`:
-  1. `oven/bun` build stage: `bun install`, `bun run build`.
+  1. `oven/bun` build stage: `bun install`, `bun run --bun build`. `adapter-bun` refuses to build unless Vite runs under Bun. **Known issue:** with Bun 1.3.4, Vite 8 and SvelteKit 3, the `--bun` build stops after "Analysing routes" and still exits 0, so no `build/` folder is written. Check this again before the Docker phase, and make the Dockerfile fail if `build/index.js` is missing.
   2. Runtime stage: Bun, `ffmpeg`, `python3`, plus `yt-dlp` and `mutagen` installed with pip into a virtualenv on `PATH`. Copy `scripts/` in, and mark them executable.
 - yt-dlp is pinned to a version, with a documented way to update it, since YouTube changes often break old releases. The `player-client=android` extractor arg is a workaround that may stop working as YouTube changes.
 - Runs as a non-root user. The UID and GID can be configured so files written to the mount have the right ownership on the host.
