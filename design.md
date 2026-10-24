@@ -137,9 +137,9 @@ Everything under `src/lib/server/` is server-only, so none of it can be imported
 
 | Variable          | Default                                     | Used by                                  | Purpose                                                               |
 | ----------------- | ------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------- |
-| `ADMIN_USERNAME`  | required                                    | `auth.ts`                                | Login username                                                        |
-| `ADMIN_PASSWORD`  | required                                    | `auth.ts`                                | Login password                                                        |
-| `COOKIE_SECURE`   | `false`                                     | `auth.ts`                                | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
+| `ADMIN_USERNAME`  | required                                    | login route → `auth.ts`                  | Login username                                                        |
+| `ADMIN_PASSWORD`  | required                                    | login route → `auth.ts`                  | Login password                                                        |
+| `COOKIE_SECURE`   | `false`                                     | login/logout routes                      | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
 | `MUSIC_DIR`       | `/music`                                    | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                             |
 | `OUTPUT_TEMPLATE` | see [Running downloads](#running-downloads) | `download.sh`                            | yt-dlp `-o` template, relative to `MUSIC_DIR`                         |
 | `MAX_CONCURRENT`  | `1`                                         | routes → `jobs.ts`                       | Number of tracks downloaded at once                                   |
@@ -152,7 +152,7 @@ Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, e
 
 **Page:** `/login`
 
-**`auth.ts` exports** `login(username, password)`, `isValidSession(token)` and `logout(token)`.
+**`auth.ts` exports** `login(sessions, submitted, admin)`, `isValidSession(sessions, token)`, `logout(sessions, token)` and `sessionCookieOpts(secure)`. Following rule 11, it reads no env vars and holds no state: `hooks.server.ts` creates the session `Map` and shares it with routes through `event.locals.sessions`, and the login and logout routes pass in `ADMIN_USERNAME`, `ADMIN_PASSWORD` and `COOKIE_SECURE`.
 
 - A username + password form, handled by a SvelteKit form action.
 - The credentials are compared against `ADMIN_USERNAME` and `ADMIN_PASSWORD` in constant time. Hash both sides, then use `crypto.timingSafeEqual`, so length differences don't leak.

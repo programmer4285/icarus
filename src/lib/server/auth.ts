@@ -1,29 +1,38 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { delay } from "es-toolkit";
-import { ADMIN_PASSWORD, ADMIN_USERNAME, COOKIE_SECURE } from "$app/env/private";
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 const FAILED_LOGIN_DELAY_MS = 500;
 
 export const SESSION_COOKIE_NAME = "session";
 
-export const sessionCookieOptions = {
-  path: "/",
-  httpOnly: true,
-  sameSite: "lax",
-  secure: COOKIE_SECURE,
-  maxAge: SESSION_DURATION_MS / 1000,
-} as const;
+export type Sessions = Map<string, number>;
 
-// maintain an in memory map of current sessions. this is sufficient
-// for a LAN service with one admin user.
-const sessions = new Map<string, number>();
+export type Credentials = {
+  username: string;
+  password: string;
+};
 
-export async function login(username: string, password: string): Promise<string | null> {
+// secure must be false when running on LAN over http
+export function sessionCookieOpts(secure: boolean) {
+  return {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure,
+    maxAge: SESSION_DURATION_MS / 1000,
+  } as const;
+}
+
+export async function login(
+  sessions: Sessions,
+  submitted: Credentials,
+  admin: Credentials,
+): Promise<string | null> {
   const sha256 = (value: string) => createHash("sha256").update(value).digest();
 
-  const usernameMatches = timingSafeEqual(sha256(username), sha256(ADMIN_USERNAME));
-  const passwordMatches = timingSafeEqual(sha256(password), sha256(ADMIN_PASSWORD));
+  const usernameMatches = timingSafeEqual(sha256(submitted.username), sha256(admin.username));
+  const passwordMatches = timingSafeEqual(sha256(submitted.password), sha256(admin.password));
 
   if (!usernameMatches || !passwordMatches) {
     // small delay to slow down password guessing attempts
@@ -37,7 +46,7 @@ export async function login(username: string, password: string): Promise<string 
   return token;
 }
 
-export function isValidSession(token: string | undefined): boolean {
+export function isValidSession(sessions: Sessions, token: string | undefined): boolean {
   if (!token) {
     return false;
   }
@@ -55,7 +64,7 @@ export function isValidSession(token: string | undefined): boolean {
   return true;
 }
 
-export function logout(token: string | undefined): void {
+export function logout(sessions: Sessions, token: string | undefined): void {
   if (token) {
     sessions.delete(token);
   }

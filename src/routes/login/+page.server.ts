@@ -1,6 +1,7 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
-import { login, SESSION_COOKIE_NAME, sessionCookieOptions } from "#lib/server/auth.ts";
+import { ADMIN_PASSWORD, ADMIN_USERNAME, COOKIE_SECURE } from "$app/env/private";
+import { login, SESSION_COOKIE_NAME, sessionCookieOpts } from "#lib/server/auth.ts";
 import type { Actions } from "./$types";
 
 const loginFormSchema = z.object({
@@ -9,7 +10,7 @@ const loginFormSchema = z.object({
 });
 
 export const actions = {
-  default: async ({ request, cookies, url }) => {
+  default: async ({ request, cookies, url, locals }) => {
     const formData = await request.formData();
     const loginForm = Object.fromEntries(formData.entries());
 
@@ -25,12 +26,16 @@ export const actions = {
 
     const { username, password } = parsed.data;
 
-    const token = await login(username, password);
+    const token = await login(
+      locals.sessions,
+      { username, password },
+      { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
+    );
     if (!token) {
       return fail(400, { username, error: "Invalid username or password" });
     }
 
-    cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions);
+    cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOpts(COOKIE_SECURE));
 
     // NOTE: if next already contains an origin, url.origin does not override it
     const nextURL = new URL(url.searchParams.get("next") ?? "/", url.origin);
