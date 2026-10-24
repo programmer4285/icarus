@@ -35,13 +35,14 @@ These rules come from `CLAUDE.md` and apply to every chunk, including the script
 8. Readability over conciseness.
 9. Use upper case for acronyms in names. `toJson` -> `toJSON`
 10. Use `assert` from es-toolkit for checking assumptions & preconditions, such as a variable being defined/non-null.
+11. Use dependency injection. Functions take dependencies as parameters instead of referencing global variables. This keeps code testable.
 
 What this means for the design:
 
 - All server code is flat in `src/lib/server/`, one file per concern (see [Code layout](#code-layout)). Each file holds everything for its concern: its enums, types, state and functions.
 - The tools that aren't TypeScript, yt-dlp and mutagen, are wrapped in two scripts in `scripts/`. The TypeScript side just spawns them.
 - A function is pulled out only when more than one place calls it.
-- Env vars are declared and validated in `src/env.ts`, the SvelteKit 3 convention, and imported from `$app/env/private` by the file that uses them.
+- Env vars are declared and validated in `src/env.ts`, the SvelteKit 3 convention. Only routes and hooks import them from `$app/env/private`, and they pass the values into `src/lib/server/` functions as parameters (rule 11). For example, the files page calls `listAudioFiles(MUSIC_DIR)`.
 
 ## Decisions
 
@@ -127,23 +128,23 @@ The placeholder `downloads/` and `tagging/` folders get removed in chunk 2.
 │  yt-dlp, ffmpeg, python3, mutagen (in image)                     │
 └───────────────┬──────────────────────────────────────────────────┘
                 │ bind mount
-          host: /path/to/music  →  container: /music  (MUSIC_DIR)
+          host: ~/music        →  container: /music  (MUSIC_DIR)
 ```
 
 Everything under `src/lib/server/` is server-only, so none of it can be imported into client code. Scripts are always spawned with an argument array, never through a shell string, so a URL or file path can't inject commands.
 
 ### Configuration (environment variables)
 
-| Variable          | Default                                     | Read in                   | Purpose                                                               |
-| ----------------- | ------------------------------------------- | ------------------------- | --------------------------------------------------------------------- |
-| `ADMIN_USERNAME`  | required                                    | `auth.ts`                 | Login username                                                        |
-| `ADMIN_PASSWORD`  | required                                    | `auth.ts`                 | Login password                                                        |
-| `COOKIE_SECURE`   | `false`                                     | `auth.ts`                 | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
-| `MUSIC_DIR`       | `/music`                                    | `files.ts`, `download.sh` | Where audio files are written and browsed                             |
-| `OUTPUT_TEMPLATE` | see [Running downloads](#running-downloads) | `download.sh`             | yt-dlp `-o` template, relative to `MUSIC_DIR`                         |
-| `MAX_CONCURRENT`  | `1`                                         | `jobs.ts`                 | Number of tracks downloaded at once                                   |
-| `MAX_JOBS`        | `50`                                        | `jobs.ts`                 | Maximum number of jobs kept in history                                |
-| `PORT`            | `3000`                                      | adapter                   | HTTP port                                                             |
+| Variable          | Default                                     | Used by                                  | Purpose                                                               |
+| ----------------- | ------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------- |
+| `ADMIN_USERNAME`  | required                                    | `auth.ts`                                | Login username                                                        |
+| `ADMIN_PASSWORD`  | required                                    | `auth.ts`                                | Login password                                                        |
+| `COOKIE_SECURE`   | `false`                                     | `auth.ts`                                | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
+| `MUSIC_DIR`       | `/music`                                    | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                             |
+| `OUTPUT_TEMPLATE` | see [Running downloads](#running-downloads) | `download.sh`                            | yt-dlp `-o` template, relative to `MUSIC_DIR`                         |
+| `MAX_CONCURRENT`  | `1`                                         | routes → `jobs.ts`                       | Number of tracks downloaded at once                                   |
+| `MAX_JOBS`        | `50`                                        | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                |
+| `PORT`            | `3000`                                      | adapter                                  | HTTP port                                                             |
 
 Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, each with a `description` and a zod `schema` that applies the default, converts the value (e.g. `z.stringbool()` turns `"true"` into a boolean) and rejects invalid values. Server files import the typed values from `$app/env/private`. SvelteKit runs the schemas when the app starts, so a missing or invalid variable stops the app with a clear `env_invalid` error. Required variables are allowed to be empty while `building` (from `$app/env`), because SvelteKit runs the app during `bun run build` and they aren't set in the Docker build stage. Each variable is added to `src/env.ts` in the chunk that first uses it. Spawned scripts inherit the app's environment, so `download.sh` sees `MUSIC_DIR` and `OUTPUT_TEMPLATE` directly.
 
@@ -305,7 +306,7 @@ A small queue in `jobs.ts` runs up to `MAX_CONCURRENT` tracks at a time.
 
 **Page:** `/files`
 
-**`files.ts` exports** `listAudioFiles()` and `resolveInLibrary(relPath)`.
+**`files.ts` exports** `listAudioFiles(rootDir)` and `resolveInLibrary(rootDir, relativePath)`. The routes pass `MUSIC_DIR` as `rootDir`.
 
 - Recursively list audio files under `MUSIC_DIR` (the `Artist/Album/` folders), keeping only `.m4a` files.
 - Show path (relative), size, and modified time.
@@ -401,7 +402,7 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
         ADMIN_USERNAME: admin
         ADMIN_PASSWORD: change-me
       volumes:
-        - /path/to/music:/music
+        - ~/music:/music
   ```
 
 ## Error handling and edge cases
