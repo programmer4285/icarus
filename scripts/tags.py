@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "mutagen>=1.47,<2",
+#     "mutagen>=1.47",
 # ]
 # ///
 import json
@@ -17,15 +17,23 @@ def read_tags(path):
 
     tags = {}
     for k in TAG_KEYS:
-        tags[k] = "; ".join(audio.get(k, []))
+        values = audio.get(k)
+        if values:
+            tags[k] = "; ".join(values)
 
-    track_number, _, total_tracks = audio.get("tracknumber", [""])[0].partition("/")
-    disc_number, _, total_discs = audio.get("discnumber", [""])[0].partition("/")
+    track = audio.get("tracknumber")
+    if track:
+        track_number, _, total_tracks = track[0].partition("/")
+        tags["tracknumber"] = track_number
+        if total_tracks:
+            tags["totaltracks"] = total_tracks
 
-    tags["tracknumber"] = track_number
-    tags["totaltracks"] = total_tracks
-    tags["discnumber"] = disc_number
-    tags["totaldiscs"] = total_discs
+    disc = audio.get("discnumber")
+    if disc:
+        disc_number, _, total_discs = disc[0].partition("/")
+        tags["discnumber"] = disc_number
+        if total_discs:
+            tags["totaldiscs"] = total_discs
 
     return tags
 

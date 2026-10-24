@@ -28,7 +28,7 @@ These rules come from `CLAUDE.md` and apply to every chunk, including the script
 1. No code comments.
 2. Colocate related code in the same file.
 3. Avoid folder and file sprawl.
-4. Use enums instead of string unions in server code. Frontend code (`.svelte` files) uses string unions, since Svelte can't compile enums in components.
+4. Use enums instead of string unions in server code. Frontend code can use string unions.
 5. Prefer `type` over `interface`.
 6. No tiny single-use helper functions. Prefer longer function bodies that contain the whole implementation.
 7. Simplicity.
@@ -343,10 +343,10 @@ All values are strings in the form. Number fields use `<input type="number">`, a
 
 ### `scripts/tags.py`
 
-| Mode           | Input                                     | Output                                                             |
-| -------------- | ----------------------------------------- | ------------------------------------------------------------------ |
-| `read <path>`  | —                                         | JSON object with the nine fields on stdout (missing tags are `""`) |
-| `write <path>` | JSON object with the nine fields on stdin | Nothing. Exits 0 on success                                        |
+| Mode           | Input                                     | Output                                                                                                                              |
+| -------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `read <path>`  | —                                         | JSON object on stdout with only the fields the file has (`{}` if untagged). `readTags`'s zod schema defaults missing fields to `""` |
+| `write <path>` | JSON object with the nine fields on stdin | Nothing. Exits 0 on success                                                                                                         |
 
 On any error, it prints a message to stderr and exits non-zero. `tags.ts` turns that into an error shown on the page.
 
