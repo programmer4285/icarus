@@ -3,7 +3,7 @@ import type { Handle } from "@sveltejs/kit/hooks";
 import { isValidSession, SESSION_COOKIE_NAME } from "#lib/server/auth.ts";
 
 export const handle: Handle = async ({ event, resolve }) => {
-  if (event.url.pathname === "/login") {
+  if (event.url.pathname === "/login" || event.url.pathname === "/logout") {
     return resolve(event);
   }
 

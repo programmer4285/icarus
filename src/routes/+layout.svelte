@@ -20,14 +20,19 @@
 <header>
   <nav>
     <span class="name">Icarus</span>
-    {#each links as link (link.href)}
-      <a
-        href={link.href}
-        aria-current={page.url.pathname === link.href ? "page" : undefined}
-      >
-        {link.label}
-      </a>
-    {/each}
+    {#if page.url.pathname !== "/login"}
+      {#each links as link (link.href)}
+        <a
+          href={link.href}
+          aria-current={page.url.pathname === link.href ? "page" : undefined}
+        >
+          {link.label}
+        </a>
+      {/each}
+      <form method="POST" action="/logout">
+        <button type="submit">Logout</button>
+      </form>
+    {/if}
   </nav>
 </header>
 
@@ -70,6 +75,23 @@
 
   nav a[aria-current="page"] {
     font-weight: 600;
+  }
+
+  nav form {
+    margin-left: auto;
+  }
+
+  nav button {
+    font: inherit;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+
+  nav button:hover {
+    color: var(--color-text);
   }
 
   main {

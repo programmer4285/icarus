@@ -104,7 +104,7 @@ src/
    ├─ +layout.svelte               nav, imports app.css
    ├─ login/+page.svelte
    ├─ login/+page.server.ts        login action
-   ├─ logout/+page.server.ts       logout action
+   ├─ logout/+server.ts            logout endpoint (POST)
    ├─ +page.svelte                 submit form
    ├─ +page.server.ts              submit action
    ├─ jobs/+page.svelte
@@ -160,13 +160,13 @@ Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, e
   - Store it in an in-memory `Map` with an expiry of 30 days.
   - Set it as a cookie: `httpOnly`, `sameSite: "lax"`, `path: "/"`, and `secure` set from `COOKIE_SECURE`.
 - On failure, show a generic "invalid username or password" message and wait ~500 ms before responding, to slow guessing.
-- **Logout:** a POST action that deletes the session and clears the cookie.
-- **Guard:** `hooks.server.ts` redirects any request without a valid session to `/login?next=<path>`, except `/login` itself.
+- **Logout:** a POST endpoint, `/logout/+server.ts`, that deletes the session, clears the cookie and redirects to `/login`. It's an endpoint rather than a form action because it has no page of its own. The nav shows a "Log out" button (a small form posting to `/logout`) on every page except `/login`.
+- **Guard:** `hooks.server.ts` redirects any request without a valid session to `/login?next=<path>`, except `/login` and `/logout`. `/logout` is let through so that a stale tab (e.g. after a server restart cleared the sessions) logs out cleanly, instead of being sent to `/login?next=/logout` and then hitting a GET on a POST-only endpoint.
 - Sessions are in memory, so a container restart logs you out.
 
 **Cookie gotcha:** SvelteKit sets cookies as `Secure` by default, except on `localhost`. Browsers drop `Secure` cookies sent over plain HTTP, so on a LAN address like `http://192.168.1.10:3000` login would silently fail. That's why `secure` is set explicitly from `COOKIE_SECURE`.
 
-**CSRF:** SvelteKit's built-in origin check already covers form actions. Behind a reverse proxy, the adapter needs to know the public origin (check `adapter-bun`'s `ORIGIN` / header settings in the Docker phase).
+**CSRF:** SvelteKit's built-in origin check covers every form POST, including form actions and endpoints like `/logout`. It's turned off in the dev server, so it can only be tested against a production build (add this to the Docker phase checks). Behind a reverse proxy, the adapter needs to know the public origin (check `adapter-bun`'s `ORIGIN` / header settings in the Docker phase).
 
 ## Feature 1 — Submitting a link
 
