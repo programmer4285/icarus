@@ -34,13 +34,14 @@ These rules come from `CLAUDE.md` and apply to every chunk, including the script
 7. Simplicity.
 8. Readability over conciseness.
 9. Use upper case for acronyms in names. `toJson` -> `toJSON`
+10. Use `assert` from es-toolkit for checking assumptions & preconditions, such as a variable being defined/non-null.
 
 What this means for the design:
 
 - All server code is flat in `src/lib/server/`, one file per concern (see [Code layout](#code-layout)). Each file holds everything for its concern: its enums, types, state and functions.
 - The tools that aren't TypeScript, yt-dlp and mutagen, are wrapped in two scripts in `scripts/`. The TypeScript side just spawns them.
 - A function is pulled out only when more than one place calls it.
-- Env vars are read in the file that uses them, not in a separate config file.
+- Env vars are declared and validated in `src/env.ts`, the SvelteKit 3 convention, and imported from `$app/env/private` by the file that uses them.
 
 ## Decisions
 
@@ -79,6 +80,8 @@ What this means for the design:
 | Downloader    | `yt-dlp` + `ffmpeg`, via `scripts/download.sh` | Bash                                                     |
 | Tag editing   | `mutagen`, via `scripts/tags.py`               | Python 3. yt-dlp can also use it for `--embed-thumbnail` |
 | Job state     | In-memory array                                |                                                          |
+| Validation    | `zod`                                          | Env var schemas in `src/env.ts`                          |
+| Utilities     | `es-toolkit`                                   | `assert` for preconditions                               |
 
 **Local development (macOS):** `brew install yt-dlp ffmpeg` and `python3 -m pip install --user mutagen`. Homebrew's yt-dlp bundles its own copy of mutagen, but `tags.py` runs with your `python3`, so that one needs mutagen too.
 
@@ -142,18 +145,18 @@ Everything under `src/lib/server/` is server-only, so none of it can be imported
 | `MAX_JOBS`        | `50`                                        | `jobs.ts`                 | Maximum number of jobs kept in history                                |
 | `PORT`            | `3000`                                      | adapter                   | HTTP port                                                             |
 
-The TypeScript side reads env vars with SvelteKit's `$env/dynamic/private`, so they're picked up at container start, not baked in at build time. Spawned scripts inherit the app's environment, so `download.sh` sees `MUSIC_DIR` and `OUTPUT_TEMPLATE` directly. If a required variable is missing, the file that needs it throws when it loads, so the app fails at startup with a clear error.
+Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, each with a `description` and a zod `schema` that applies the default, converts the value (e.g. `z.stringbool()` turns `"true"` into a boolean) and rejects invalid values. Server files import the typed values from `$app/env/private`. SvelteKit runs the schemas when the app starts, so a missing or invalid variable stops the app with a clear `env_invalid` error. Required variables are allowed to be empty while `building` (from `$app/env`), because SvelteKit runs the app during `bun run build` and they aren't set in the Docker build stage. Each variable is added to `src/env.ts` in the chunk that first uses it. Spawned scripts inherit the app's environment, so `download.sh` sees `MUSIC_DIR` and `OUTPUT_TEMPLATE` directly.
 
 ## Feature 0 — Login
 
 **Page:** `/login`
 
-**`auth.ts` exports** `login(username, password)`, `getSession(token)` and `logout(token)`.
+**`auth.ts` exports** `login(username, password)`, `isValidSession(token)` and `logout(token)`.
 
 - A username + password form, handled by a SvelteKit form action.
 - The credentials are compared against `ADMIN_USERNAME` and `ADMIN_PASSWORD` in constant time. Hash both sides, then use `crypto.timingSafeEqual`, so length differences don't leak.
 - On success:
-  - Create a random session token (32 bytes from `crypto.getRandomValues`, hex-encoded).
+  - Create a random session token (32 bytes from `crypto.randomBytes`, hex-encoded).
   - Store it in an in-memory `Map` with an expiry of 30 days.
   - Set it as a cookie: `httpOnly`, `sameSite: "lax"`, `path: "/"`, and `secure` set from `COOKIE_SECURE`.
 - On failure, show a generic "invalid username or password" message and wait ~500 ms before responding, to slow guessing.
@@ -420,45 +423,45 @@ Each chunk is a small, self-contained commit (ideally under ~100 lines) that pas
 
 ### Phase 1 — Login
 
-3. `auth.ts`: read the env vars, check credentials, and keep the in-memory session store.
-4. `/login` page and form action that sets the session cookie.
-5. `hooks.server.ts` guard that redirects to `/login`.
-6. Logout action plus a button in the nav.
+1. `auth.ts`: read the env vars, check credentials, and keep the in-memory session store.
+2. `/login` page and form action that sets the session cookie.
+3. `hooks.server.ts` guard that redirects to `/login`.
+4. Logout action plus a button in the nav.
 
 ### Phase 2 — Files page (read-only, no yt-dlp needed yet)
 
-7. `files.ts`: add `resolveInLibrary` and `listAudioFiles`.
-8. `/files` page: a load function plus a plain table of files.
-9. Sort and client-side filter on the files page.
+1. `files.ts`: add `resolveInLibrary` and `listAudioFiles`.
+2. `/files` page: a load function plus a plain table of files.
+3. Sort and client-side filter on the files page.
 
 ### Phase 3 — Tag editor
 
-1.  `scripts/tags.py`: add `read` mode. Try it by hand on an M4A file.
-2.  `tags.ts`: add `readTags`. Add the `/files/[...path]` page showing current tags (read-only).
-3.  `scripts/tags.py`: add `write` mode. Check by hand with `ffprobe` that other tags and the cover art survive.
-4.  `tags.ts`: add `writeTags`. Make the form editable, and add the save action.
+1. `scripts/tags.py`: add `read` mode. Try it by hand on an M4A file.
+2. `tags.ts`: add `readTags`. Add the `/files/[...path]` page showing current tags (read-only).
+3. `scripts/tags.py`: add `write` mode. Check by hand with `ffprobe` that other tags and the cover art survive.
+4. `tags.ts`: add `writeTags`. Make the form editable, and add the save action.
 
 ### Phase 4 — Submitting and downloading
 
-1.  Home page form and `submitURL` validation in `jobs.ts`, which shows errors (no download yet).
-2.  `jobs.ts`: add the enums, types, and job store, including the `MAX_JOBS` limit.
-3.  `scripts/download.sh`: add `video` mode. Try it by hand, and confirm with `ffprobe` that the AAC audio was copied, not re-encoded.
-4.  `ytdlp.ts`: spawn the script, parse progress, and get the final path.
-5.  `jobs.ts`: add the queue that respects `MAX_CONCURRENT`, and connect `submitURL` to it (single video only).
-6.  `scripts/download.sh` `playlist` mode, plus playlist expansion in `ytdlp.ts`.
+1. Home page form and `submitURL` validation in `jobs.ts`, which shows errors (no download yet).
+2. `jobs.ts`: add the enums, types, and job store, including the `MAX_JOBS` limit.
+3. `scripts/download.sh`: add `video` mode. Try it by hand, and confirm with `ffprobe` that the AAC audio was copied, not re-encoded.
+4. `ytdlp.ts`: spawn the script, parse progress, and get the final path.
+5. `jobs.ts`: add the queue that respects `MAX_CONCURRENT`, and connect `submitURL` to it (single video only).
+6. `scripts/download.sh` `playlist` mode, plus playlist expansion in `ytdlp.ts`.
 
 ### Phase 5 — Jobs page
 
-1.  `/jobs` page: a load function plus a static list of jobs.
-2.  Reload with `invalidateAll()` while jobs are active, and show progress bars per track.
-3.  Cancel action (kill the process, mark tracks cancelled).
-4.  Retry failed tracks, and clear finished jobs.
+1. `/jobs` page: a load function plus a static list of jobs.
+2. Reload with `invalidateAll()` while jobs are active, and show progress bars per track.
+3. Cancel action (kill the process, mark tracks cancelled).
+4. Retry failed tracks, and clear finished jobs.
 
 ### Phase 6 — Docker
 
-1.  Add a `Dockerfile` (build + runtime stages with yt-dlp, ffmpeg, python3, mutagen, and the scripts).
-2.  Add `docker-compose.yml` example plus README run instructions.
-3.  Add non-root user with configurable UID/GID.
+1. Add a `Dockerfile` (build + runtime stages with yt-dlp, ffmpeg, python3, mutagen, and the scripts).
+2. Add `docker-compose.yml` example plus README run instructions.
+3. Add non-root user with configurable UID/GID.
 
 ### Later / nice-to-have
 

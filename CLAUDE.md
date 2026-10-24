@@ -9,3 +9,4 @@
 7. Simplicity. Simplicity. Simplicity.
 8. Emphasize readability of code over conciseness.
 9. Use upper case for acronyms in names. `toJson` -> `toJSON`
+10. Use `assert` from es-toolkit for checking assumptions & preconditions, such as a variable being defined/non-null.
