@@ -73,6 +73,9 @@
   }
 
   main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     padding-top: var(--space-5);
   }
 </style>

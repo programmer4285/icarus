@@ -33,6 +33,7 @@ export async function login(username: string, password: string): Promise<string 
 
   const token = randomBytes(32).toString("hex");
   sessions.set(token, Date.now() + SESSION_DURATION_MS);
+
   return token;
 }
 

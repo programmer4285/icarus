@@ -6,6 +6,9 @@
   --color-border: #e4e4e7;
   --color-accent: #2563eb;
   --color-error: #dc2626;
+  --color-button: #f59e0b;
+  --color-button-hover: #f97316;
+  --color-button-text: #333333;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -29,6 +32,8 @@
     --color-border: #3f3f46;
     --color-accent: #60a5fa;
     --color-error: #f87171;
+    --color-button: #fbbf24;
+    --color-button-hover: #fb923c;
   }
 }
 
