@@ -6,13 +6,11 @@
   const fields = [
     { key: "title", label: "Title" },
     { key: "artist", label: "Artist" },
-    { key: "albumartist", label: "Album artist" },
+    { key: "albumartist", label: "Album Artist" },
     { key: "album", label: "Album" },
     { key: "date", label: "Date" },
-    { key: "tracknumber", label: "Track number" },
-    { key: "totaltracks", label: "Total tracks" },
-    { key: "discnumber", label: "Disc number" },
-    { key: "totaldiscs", label: "Total discs" },
+    { key: "tracknumber", label: "Track" },
+    { key: "discnumber", label: "Disc" },
   ] as const;
 </script>
 

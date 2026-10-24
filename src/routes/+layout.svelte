@@ -22,13 +22,9 @@
     <span class="name">Icarus</span>
     {#if page.url.pathname !== "/login"}
       {#each links as link (link.href)}
-        <a
-          href={link.href}
-          aria-current={page.url.pathname === link.href ||
-          (link.href !== "/" && page.url.pathname.startsWith(`${link.href}/`))
-            ? "page"
-            : undefined}
-        >
+        {@const isChild = link.href !== "/" && page.url.pathname.startsWith(`${link.href}/`)}
+        {@const isCurrent = page.url.pathname === link.href || isChild}
+        <a href={link.href} aria-current={isCurrent ? "page" : undefined}>
           {link.label}
         </a>
       {/each}

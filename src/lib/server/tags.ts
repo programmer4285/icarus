@@ -16,9 +16,7 @@ const tagsSchema = z.object({
   album: z.string().default(""),
   date: z.string().default(""),
   tracknumber: z.string().default(""),
-  totaltracks: z.string().default(""),
   discnumber: z.string().default(""),
-  totaldiscs: z.string().default(""),
 });
 
 export type Tags = z.infer<typeof tagsSchema>;

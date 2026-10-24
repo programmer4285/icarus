@@ -46,17 +46,17 @@ What this means for the design:
 
 ## Decisions
 
-| Topic              | Decision                                                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Audio format       | `--audio-format m4a --audio-quality 0`: always M4A. The only format the app downloads, lists, and tags (see [Why M4A only](#why-m4a-only))                          |
-| Folder layout      | Everything under one `MUSIC_DIR`, laid out by the output template (`Artist/Album/NN. Title.ext`). No per-playlist folders                                           |
-| Job history        | In memory only, capped at `MAX_JOBS` (see [Job history limit](#job-history-limit))                                                                                  |
-| Auth               | One admin user; `ADMIN_USERNAME` and `ADMIN_PASSWORD` env vars; session cookie                                                                                      |
-| `watch?v=X&list=Y` | Download just the video (`--no-playlist`)                                                                                                                           |
-| Downloading        | A shell script, `scripts/download.sh`, holds the yt-dlp command. The app spawns it                                                                                  |
-| Tagging            | A Python script, `scripts/tags.py`, uses mutagen. The app spawns it. A manual form with nine fields; every other tag on the file is kept. No MusicBrainz lookup yet |
-| Tests              | None for now. Each chunk must pass `bun run check`                                                                                                                  |
-| Styling            | Plain CSS: Svelte component-scoped styles plus a few global CSS variables. No UI kit                                                                                |
+| Topic              | Decision                                                                                                                                                                                                               |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Audio format       | `--audio-format m4a --audio-quality 0`: always M4A. The only format the app downloads, lists, and tags (see [Why M4A only](#why-m4a-only))                                                                             |
+| Folder layout      | Everything under one `MUSIC_DIR`, laid out by the output template (`Artist/Album/NN. Title.ext`). No per-playlist folders                                                                                              |
+| Job history        | In memory only, capped at `MAX_JOBS` (see [Job history limit](#job-history-limit))                                                                                                                                     |
+| Auth               | One admin user; `ADMIN_USERNAME` and `ADMIN_PASSWORD` env vars; session cookie                                                                                                                                         |
+| `watch?v=X&list=Y` | Download just the video (`--no-playlist`)                                                                                                                                                                              |
+| Downloading        | A shell script, `scripts/download.sh`, holds the yt-dlp command. The app spawns it                                                                                                                                     |
+| Tagging            | A Python script, `scripts/tags.py`, uses mutagen. The app spawns it. A manual form for seven tags (track and disc each shown as number + total inputs); every other tag on the file is kept. No MusicBrainz lookup yet |
+| Tests              | None for now. Each chunk must pass `bun run check`                                                                                                                                                                     |
+| Styling            | Plain CSS: Svelte component-scoped styles plus a few global CSS variables. No UI kit                                                                                                                                   |
 
 **Why plain CSS:** there are only five pages (login, home, jobs, files, editor), and they're mostly forms and tables. A UI kit would add a dependency and make every diff larger to review. Svelte already scopes styles per component, and a small `app.css` with color and spacing variables keeps things consistent.
 
@@ -333,48 +333,46 @@ type Tags = {
   album: string;
   date: string;
   tracknumber: string;
-  totaltracks: string;
   discnumber: string;
-  totaldiscs: string;
 };
 ```
 
-All values are strings in the form. Number fields use `<input type="number">`, and an empty field removes that tag from the file.
+`tracknumber` and `discnumber` hold a number and an optional total in one string, e.g. `"3/12"` or `"3"`. That's how M4A stores them: one atom holds both numbers. The form shows them as two inputs each (number and total), and the save action joins them back into `"n/total"` (or `"n"` with no total) before calling `writeTags`. Everything else in the stack treats them as plain text.
+
+All values are strings. Number inputs use `<input type="number">`. An empty field leaves that tag as it is on the file: the app never deletes tags, so a tag can't be removed from the editor.
 
 ### `scripts/tags.py`
 
-| Mode           | Input                                     | Output                                                                                                                              |
-| -------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `read <path>`  | —                                         | JSON object on stdout with only the fields the file has (`{}` if untagged). `readTags`'s zod schema defaults missing fields to `""` |
-| `write <path>` | JSON object with the nine fields on stdin | Nothing. Exits 0 on success                                                                                                         |
+| Mode           | Input                                                                                                               | Output                                                                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `read <path>`  | —                                                                                                                   | JSON object on stdout with only the fields the file has (`{}` if untagged). `readTags`'s zod schema defaults missing fields to `""` |
+| `write <path>` | JSON object with the seven fields on stdin. Fields with a value are set; empty or missing fields are left unchanged | Nothing. Exits 0 on success. Invalid input (e.g. a track number of `3/abc`) fails before saving, so the file is left untouched      |
 
 On any error, it prints a message to stderr and exits non-zero. `tags.ts` turns that into an error shown on the page.
 
-The script opens the file with mutagen's `EasyMP4`, which maps readable key names to MP4 atoms:
+The script opens the file with mutagen's `EasyMP4`, which maps readable key names to MP4 atoms. Every field is passed through as a string, with no per-field special cases:
 
-| Field         | `EasyMP4` key | MP4 atom        |
-| ------------- | ------------- | --------------- |
-| `title`       | `title`       | `©nam`          |
-| `artist`      | `artist`      | `©ART`          |
-| `albumartist` | `albumartist` | `aART`          |
-| `album`       | `album`       | `©alb`          |
-| `date`        | `date`        | `©day`          |
-| `tracknumber` | `tracknumber` | `trkn` (number) |
-| `totaltracks` | `tracknumber` | `trkn` (total)  |
-| `discnumber`  | `discnumber`  | `disk` (number) |
-| `totaldiscs`  | `discnumber`  | `disk` (total)  |
+| Field         | MP4 atom                     |
+| ------------- | ---------------------------- |
+| `title`       | `©nam`                       |
+| `artist`      | `©ART`                       |
+| `albumartist` | `aART`                       |
+| `album`       | `©alb`                       |
+| `date`        | `©day`                       |
+| `tracknumber` | `trkn` (number + total pair) |
+| `discnumber`  | `disk` (number + total pair) |
 
-MP4 stores a number and its total together, so `EasyMP4` exposes them as one `n/total` string. When reading, the script splits it into the two form fields. When writing, it joins them back (`n` alone if there's no total). These are the standard iTunes atoms, which is also what [Picard](https://picard-docs.musicbrainz.org/en/appendices/tag_mapping.html) writes. So Navidrome, Jellyfin, beets, Plex and Apple Music all read them.
+`EasyMP4` converts `trkn`/`disk` to and from `"n/total"` strings itself. These are the standard iTunes atoms, which is also what [Picard](https://picard-docs.musicbrainz.org/en/appendices/tag_mapping.html) writes. So Navidrome, Jellyfin, beets, Plex and Apple Music all read them.
 
 ### Keeping other tags
 
-A save changes **only** the nine fields above. Everything else on the file stays exactly as it was. That includes:
+A save changes **only** the seven fields above. Everything else on the file stays exactly as it was. That includes:
 
 - the cover art from `--embed-thumbnail`
 - `comment` / `purl` (the YouTube URL), `description`, and `genre` from `--embed-metadata`
 - any tags added by other tools
 
-`write` loads the file's existing tags, sets or deletes just these keys, and calls `save()`. mutagen updates tags in place this way, and never touches keys it wasn't asked to change. When writing tags is implemented, compare `ffprobe` output from before and after a save to check this by hand.
+`write` loads the file's existing tags, sets just the keys that have a value, and calls `save()`. mutagen updates tags in place this way, and never touches keys it wasn't asked to change. When writing tags is implemented, compare `ffprobe` output from before and after a save to check this by hand.
 
 ### Flow
 
