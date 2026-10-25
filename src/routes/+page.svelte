@@ -27,9 +27,7 @@
 {#if form?.error}
   <p class="message error" role="alert">{form.error}</p>
 {:else if form?.submitted}
-  <p class="message" role="status">
-    Recognised a {form.submitted.kind}: <a href={form.submitted.url}>{form.submitted.url}</a>
-  </p>
+  <p class="message queued" role="status">Download queued!</p>
 {/if}
 
 <style>
@@ -76,5 +74,9 @@
 
   .error {
     color: var(--color-error);
+  }
+
+  .queued {
+    color: var(--color-success);
   }
 </style>

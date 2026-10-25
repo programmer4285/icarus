@@ -1,14 +1,21 @@
 import { z } from "zod";
 
-export enum JobKind {
-  VIDEO = "video",
-  PLAYLIST = "playlist",
+export enum JobStatus {
+  QUEUED = "queued",
+  RUNNING = "running",
+  DONE = "done",
+  FAILED = "failed",
+  CANCELLED = "cancelled",
 }
 
-export type JobRequest = {
-  kind: JobKind;
+export type Job = {
   id: string;
   url: string;
+  status: JobStatus;
+  createdAt: number;
+  progress: number;
+  files: string[];
+  error?: string;
 };
 
 const YOUTUBE_HOSTS = ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"];
@@ -23,7 +30,7 @@ const playlistIDSchema = z
   .max(100)
   .regex(/^[A-Za-z0-9_-]+$/);
 
-export function parseURL(url: URL): JobRequest | { error: string } {
+export function parseURL(url: URL): { url: string } | { error: string } {
   let rawVideoID: string | null = null;
   let rawPlaylistID: string | null = null;
 
@@ -45,21 +52,36 @@ export function parseURL(url: URL): JobRequest | { error: string } {
 
   const videoID = videoIDSchema.safeParse(rawVideoID);
   if (videoID.success) {
-    return {
-      kind: JobKind.VIDEO,
-      id: videoID.data,
-      url: `https://www.youtube.com/watch?v=${videoID.data}`,
-    };
+    return { url: `https://www.youtube.com/watch?v=${videoID.data}` };
   }
 
   const playlistID = playlistIDSchema.safeParse(rawPlaylistID);
   if (playlistID.success) {
-    return {
-      kind: JobKind.PLAYLIST,
-      id: playlistID.data,
-      url: `https://www.youtube.com/playlist?list=${playlistID.data}`,
-    };
+    return { url: `https://www.youtube.com/playlist?list=${playlistID.data}` };
   }
 
   return { error: "Provide a link with a valid video or playlist ID 🤓" };
+}
+
+export function addJob(jobs: Job[], url: string, maxJobs: number): Job {
+  const job: Job = {
+    id: crypto.randomUUID(),
+    url,
+    status: JobStatus.QUEUED,
+    createdAt: Date.now(),
+    progress: 0,
+    files: [],
+  };
+
+  jobs.unshift(job);
+
+  // enforce max jobs limit, remove oldest jobs first. only remove finished jobs
+  const finished = [JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED];
+  for (let index = jobs.length - 1; index >= 0 && jobs.length > maxJobs; index--) {
+    if (finished.includes(jobs[index].status)) {
+      jobs.splice(index, 1);
+    }
+  }
+
+  return job;
 }

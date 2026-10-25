@@ -5,7 +5,7 @@ A self-hosted, Dockerized web app that takes YouTube links (single videos or pla
 ## Goals
 
 1. Submit a YouTube video or playlist URL and get audio files written to a mounted folder.
-2. See the jobs that are running (and recently finished or failed), with per-track progress.
+2. See the jobs that are running (and recently finished or failed), with progress.
 3. Browse the audio files in the mounted folder.
 4. Select a file and edit its tags with a form, keeping every tag the form doesn't cover.
 5. Protect everything behind a single admin login configured with env vars.
@@ -90,15 +90,15 @@ What this means for the design:
 
 ```
 scripts/
-├─ download.sh                     yt-dlp command: "video <url>" and "playlist <url>"
+├─ download.sh                     yt-dlp command for one video or playlist URL
 └─ tags.py                         mutagen: "read <path>" and "write <path>"
 src/
 ├─ app.css                         CSS variables
 ├─ hooks.server.ts                 auth guard on every request
 ├─ lib/server/
 │  ├─ auth.ts                      credential check, session store
-│  ├─ jobs.ts                      JobStatus/JobKind enums, Job/Track types, job store, MAX_JOBS, queue, submitURL
-│  ├─ ytdlp.ts                     spawns download.sh, parses progress, playlist expansion
+│  ├─ jobs.ts                      JobStatus enum, Job type, parseURL, addJob (MAX_JOBS), queue
+│  ├─ ytdlp.ts                     spawns download.sh, parses progress and file paths
 │  ├─ files.ts                     listAudioFiles, resolveInLibrary
 │  └─ tags.ts                      Tags type, readTags/writeTags (spawn `uv run tags.py`)
 └─ routes/
@@ -142,8 +142,8 @@ Everything under `src/lib/server/` is server-only, so none of it can be imported
 | `COOKIE_SECURE`   | `false`                                     | login/logout routes                      | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
 | `MUSIC_DIR`       | `/music`                                    | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                             |
 | `OUTPUT_TEMPLATE` | see [Running downloads](#running-downloads) | `download.sh`                            | yt-dlp `-o` template, relative to `MUSIC_DIR`                         |
-| `MAX_CONCURRENT`  | `1`                                         | routes → `jobs.ts`                       | Number of tracks downloaded at once                                   |
-| `MAX_JOBS`        | `50`                                        | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                |
+| `MAX_CONCURRENT`  | `1`                                         | routes → `jobs.ts`                       | Number of jobs run at once                                            |
+| `MAX_JOBS`        | `10`                                        | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                |
 | `PORT`            | `3000`                                      | adapter                                  | HTTP port                                                             |
 
 Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, each with a `description` and a zod `schema` that applies the default, converts the value (e.g. `z.stringbool()` turns `"true"` into a boolean) and rejects invalid values. Server files import the typed values from `$app/env/private`. SvelteKit runs the schemas when the app starts, so a missing or invalid variable stops the app with a clear `env_invalid` error. Required variables are allowed to be empty while `building` (from `$app/env`), because SvelteKit runs the app during `bun run build` and they aren't set in the Docker build stage. Each variable is added to `src/env.ts` in the chunk that first uses it. Spawned scripts inherit the app's environment, so `download.sh` sees `MUSIC_DIR` and `OUTPUT_TEMPLATE` directly.
@@ -173,19 +173,16 @@ Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, e
 
 **Page:** `/` (home)
 
-**`jobs.ts` exports** `submitURL(url)`. It validates the URL, creates the job, and queues it, and it returns either the new job or an error message.
-
 - A single text input plus a Submit button, handled by a SvelteKit form action.
-- Validation:
-  - The URL host must be `youtube.com`, `www.youtube.com`, `m.youtube.com`, `music.youtube.com`, or `youtu.be`.
-  - Classify the link as a **video** (`watch?v=`, `youtu.be/…`, `shorts/…`) or a **playlist** (`playlist?list=`).
-  - A `watch?v=X&list=Y` link counts as a **video**. Only `v` is used.
-- On success, redirect to `/jobs`.
-- On failure, show the error inline next to the input.
-
-### Playlist expansion
-
-For playlists, `ytdlp.ts` runs `download.sh playlist <url>`, which prints the playlist as JSON (id + title per entry) without downloading anything. Each entry becomes one **track** inside the job. Each track is then downloaded as its own `download.sh video <url>` run, which gives per-track progress and per-track failures.
+- Validation happens in two steps:
+  - The action's zod schema (`z.url()`) checks that the input is a URL at all.
+  - **`jobs.ts`'s `parseURL(url)`** checks it's a YouTube link and returns a canonical URL, or an error message:
+    - The host must be `youtube.com`, `www.youtube.com`, `m.youtube.com`, `music.youtube.com`, or `youtu.be`.
+    - A **video** link (`watch?v=`, `youtu.be/…`, `shorts/…`) must have an 11-character video ID and becomes `https://www.youtube.com/watch?v=<id>`.
+    - A **playlist** link (`playlist?list=`) must have a playlist ID of at most 100 characters and becomes `https://www.youtube.com/playlist?list=<id>`.
+    - A `watch?v=X&list=Y` link counts as a **video**. Only `v` is used.
+- On success, the action adds a job and stays on the home page, showing "Download queued!" in green, so another link can be pasted straight away. The jobs page is one click away in the nav.
+- On failure, it shows the error under the input and keeps what was typed.
 
 ## Feature 2 — Jobs page
 
@@ -193,46 +190,44 @@ For playlists, `ytdlp.ts` runs `download.sh playlist <url>`, which prints the pl
 
 ### Data model
 
+A job is **one yt-dlp run for one URL**. yt-dlp handles both kinds of link: a video URL downloads one file, and a playlist URL downloads every video in it, one after another, in the same run. So there are no per-video tracks in the model.
+
 ```ts
 enum JobStatus {
-  Queued = "queued",
-  Running = "running",
-  Done = "done",
-  Failed = "failed",
-  Cancelled = "cancelled",
+  QUEUED = "queued",
+  RUNNING = "running",
+  DONE = "done",
+  FAILED = "failed",
+  CANCELLED = "cancelled",
 }
-
-enum JobKind {
-  Video = "video",
-  Playlist = "playlist",
-}
-
-type Track = {
-  videoID: string;
-  title: string;
-  status: JobStatus;
-  progress: number;
-  outputPath?: string;
-  error?: string;
-};
 
 type Job = {
   id: string;
   url: string;
-  kind: JobKind;
-  title: string;
   status: JobStatus;
   createdAt: number;
-  tracks: Track[];
+  progress: number;
+  files: string[];
+  error?: string;
 };
 ```
 
-- `progress` is 0–100. `outputPath` is relative to `MUSIC_DIR` and is set once the track is done.
-- A job's status is derived from its tracks: running if any track is running, failed if all tracks failed, and so on.
+- `status` is set directly by the runner: `QUEUED` → `RUNNING` → `DONE`, `FAILED` or `CANCELLED`.
+- `progress` (0–100) is the download progress of the video currently being downloaded.
+- `files` collects the path of every finished file, in the order they finish.
+- `error` holds the last few lines of yt-dlp's stderr when the run fails.
+
+**Trade-offs of one run per job:**
+
+- **A partly failed playlist shows as `FAILED`.** yt-dlp skips a private or deleted video and carries on (`--no-abort-on-error` is its default), but exits non-zero at the end. `files` still lists everything that downloaded, and `error` explains the failure.
+- **Retry reruns the whole URL.** `--download-archive` (see below) makes yt-dlp skip videos it has already downloaded, so a retry only fetches what's missing.
+- **Cancel stops the whole run.**
 
 ### Job history limit
 
-Jobs are kept in an in-memory array, newest first. Whenever a new job is added and there are more than `MAX_JOBS` jobs, the oldest **finished** jobs (`Done`, `Failed`, `Cancelled`) are removed until the count is back at the limit. Queued and running jobs are never removed, so the list can briefly go over the limit if you queue more than `MAX_JOBS` at once.
+**`jobs.ts` exports** `addJob(jobs, url, maxJobs)`. Following rule 11, it takes the jobs array as a parameter: `hooks.server.ts` creates the array and shares it with routes through `event.locals`, the same way as the sessions map.
+
+Jobs are kept newest first. `addJob` puts the new job at the front, then removes the oldest **finished** jobs (`DONE`, `FAILED`, `CANCELLED`) until there are at most `MAX_JOBS`. Queued and running jobs are never removed, so the list can briefly go over the limit if you queue more than `MAX_JOBS` at once.
 
 ### Running downloads
 
@@ -245,14 +240,7 @@ yt-dlp --embed-metadata --embed-thumbnail \
        -o "%(artist)s/%(album)s/%(track_number)02d. %(title)s.%(ext)s" <url>
 ```
 
-**`scripts/download.sh`** has two modes:
-
-| Mode             | Command                            | Output                                   |
-| ---------------- | ---------------------------------- | ---------------------------------------- |
-| `video <url>`    | Your command, plus the flags below | Progress lines, then the final file path |
-| `playlist <url>` | `yt-dlp --flat-playlist -J <url>`  | The playlist as one JSON object          |
-
-In `video` mode, the script runs your command with a few flags added so the app can drive it:
+**`scripts/download.sh <url>`** runs it with a few flags added so the app can drive it:
 
 ```
 yt-dlp --embed-metadata --embed-thumbnail \
@@ -260,28 +248,30 @@ yt-dlp --embed-metadata --embed-thumbnail \
        -x --audio-format m4a --audio-quality 0 \
        -P "$MUSIC_DIR" -o "$OUTPUT_TEMPLATE" \
        --no-playlist --no-overwrites \
+       --download-archive "$MUSIC_DIR/.download-archive" \
        --newline --progress-template "download:[progress]%(progress._percent_str)s" \
        --print after_move:filepath \
-       "$2"
+       "$1"
 ```
 
-| Added flag                             | Why                                                                                                                                                               |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--audio-format m4a` (replaces `best`) | Always M4A (see [Why M4A only](#why-m4a-only))                                                                                                                    |
-| `-P "$MUSIC_DIR"`                      | Base folder for the output template                                                                                                                               |
-| `--no-playlist`                        | Guarantees one video per run, even for `&list=` links                                                                                                             |
-| `--no-overwrites`                      | Re-submitting a link never clobbers a file you've already re-tagged                                                                                               |
-| `--newline --progress-template …`      | One progress line per update, with a fixed prefix that's easy to parse                                                                                            |
-| `--print after_move:filepath`          | The final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension |
+| Added flag                             | Why                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--audio-format m4a` (replaces `best`) | Always M4A (see [Why M4A only](#why-m4a-only))                                                                                                                                                                                                                                                                                |
+| `-P "$MUSIC_DIR"`                      | Base folder for the output template                                                                                                                                                                                                                                                                                           |
+| `--no-playlist`                        | For ambiguous `watch?v=X&list=Y` links, download just the video. Playlist links (`playlist?list=`) still download the whole playlist                                                                                                                                                                                          |
+| `--no-overwrites`                      | Re-submitting a link never clobbers an existing file                                                                                                                                                                                                                                                                          |
+| `--download-archive …`                 | yt-dlp records the ID of every video it downloads in this file and skips them on later runs. This makes retries only fetch what's missing, and stops re-downloads of files you've since renamed through the tag editor (which `--no-overwrites` alone wouldn't catch). The file starts with `.`, so the files page ignores it |
+| `--newline --progress-template …`      | One progress line per update, with a fixed prefix that's easy to parse                                                                                                                                                                                                                                                        |
+| `--print after_move:filepath`          | Prints each file's final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension                                                                                                                                              |
 
-The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and killing the script process kills the download (used by cancel). You can run it by hand, e.g. `MUSIC_DIR=~/Music/test scripts/download.sh video <url>`.
+The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and killing the script process kills the download (used by cancel). You can run it by hand, e.g. `MUSIC_DIR=~/Music/test scripts/download.sh <url>`.
 
-**`ytdlp.ts`** spawns the script with `Bun.spawn(["scripts/download.sh", "video", url])` and:
+**`ytdlp.ts`** spawns the script with an argument array and:
 
-- reads stdout line by line. Lines with the `[progress]` prefix update `track.progress`. The last non-progress line is the file path.
-- marks the track `Failed` on a non-zero exit, and keeps the last few stderr lines as `error`.
+- reads stdout line by line. Lines with the `[progress]` prefix update `job.progress`. Every other line is a finished file's path and is added to `job.files`.
+- sets the job to `DONE` on exit code 0, or to `FAILED` with the last few stderr lines in `error` otherwise.
 
-A small queue in `jobs.ts` runs up to `MAX_CONCURRENT` tracks at a time.
+A small queue in `jobs.ts` runs up to `MAX_CONCURRENT` jobs at a time.
 
 **Output template and missing fields.** Your template relies on `artist`, `album`, and `track_number`. Those exist for official "auto-generated by YouTube" music uploads, but not for ordinary videos. When a field is missing, yt-dlp puts in `NA`, so a random video becomes `NA/NA/NA. Title.m4a`. The script's default (`${OUTPUT_TEMPLATE:-…}`) uses yt-dlp's documented `|default` and `&replacement` syntax:
 
@@ -300,10 +290,10 @@ One difference remains: for characters that aren't allowed in filenames, yt-dlp 
 
 ### UI
 
-- A list of jobs, newest first, each showing title, status, and overall progress.
-- Each job expands to its tracks, showing a progress bar per track and the error text for failures.
+- A list of jobs, newest first, each showing the URL, status, progress of the current video, and the files downloaded so far.
+- A failed job shows its error text.
 - The page's `load` function returns the job list. While any job is queued or running, the page calls `invalidateAll()` every ~2 seconds to reload it. This needs no separate JSON endpoint.
-- Later chunks: cancel a job, retry failed tracks, clear finished jobs. These are form actions on the same page.
+- Later chunks: cancel a job, retry a failed job, clear finished jobs. These are form actions on the same page.
 
 ## Feature 3 — Files page
 
@@ -410,8 +400,8 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 
 ## Error handling and edge cases
 
-- Private, deleted, or age-restricted videos in a playlist: the track fails and the rest of the playlist continues.
-- Duplicate submissions: allowed. `--no-overwrites` means an existing file is kept, and the track is marked done.
+- Private, deleted, or age-restricted videos in a playlist: yt-dlp skips them and downloads the rest. The job ends as `FAILED` with yt-dlp's message in `error`, and `files` lists what did download.
+- Duplicate submissions: allowed. `--download-archive` makes yt-dlp skip videos it has already downloaded, so the job finishes quickly as `DONE` without re-downloading.
 - Two different videos that resolve to the same `Artist/Album/N. Title` path: the second one is skipped by `--no-overwrites`. Accepted for now. If it becomes a problem, add `[%(id)s]` to the template.
 - A file mutagen can't open (unknown format or corrupt): `tags.py` exits non-zero and the editor shows the error.
 - Container restart: all jobs and sessions are lost. Files that already finished are safe on disk.
@@ -447,19 +437,18 @@ Each chunk is a small, self-contained commit (ideally under ~100 lines) that pas
 
 ### Phase 4 — Submitting and downloading
 
-1. Home page form and `submitURL` validation in `jobs.ts`, which shows errors (no download yet).
-2. `jobs.ts`: add the enums, types, and job store, including the `MAX_JOBS` limit.
-3. `scripts/download.sh`: add `video` mode. Try it by hand, and confirm with `ffprobe` that the AAC audio was copied, not re-encoded.
-4. `ytdlp.ts`: spawn the script, parse progress, and get the final path.
-5. `jobs.ts`: add the queue that respects `MAX_CONCURRENT`, and connect `submitURL` to it (single video only).
-6. `scripts/download.sh` `playlist` mode, plus playlist expansion in `ytdlp.ts`.
+1. Home page form and `parseURL` validation in `jobs.ts`, which shows errors (no download yet).
+2. `jobs.ts`: add the `JobStatus` enum, `Job` type and `addJob`, including the `MAX_JOBS` limit.
+3. `scripts/download.sh`: try it by hand with a video and a playlist, and confirm with `ffprobe` that the AAC audio was copied, not re-encoded.
+4. `ytdlp.ts`: spawn the script, parse progress and file paths, and set the final status.
+5. `jobs.ts`: add the queue that respects `MAX_CONCURRENT`, create the jobs array in `hooks.server.ts`, and connect the submit action to it.
 
 ### Phase 5 — Jobs page
 
 1. `/jobs` page: a load function plus a static list of jobs.
-2. Reload with `invalidateAll()` while jobs are active, and show progress bars per track.
-3. Cancel action (kill the process, mark tracks cancelled).
-4. Retry failed tracks, and clear finished jobs.
+2. Reload with `invalidateAll()` while jobs are active, and show a progress bar for the current video.
+3. Cancel action (kill the process, mark the job cancelled).
+4. Retry a failed job, and clear finished jobs.
 
 ### Phase 6 — Docker
 
