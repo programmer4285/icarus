@@ -98,7 +98,7 @@ src/
 ├─ lib/server/
 │  ├─ auth.ts                      credential check, session store
 │  ├─ jobs.ts                      JobStatus enum, Job type, parseURL, addJob (MAX_JOBS), queue
-│  ├─ ytdlp.ts                     spawns download.sh, parses progress and file paths
+│  ├─ downloads.ts                 runDownload: spawns download.sh, parses progress and file paths
 │  ├─ files.ts                     listAudioFiles, resolveInLibrary
 │  └─ tags.ts                      Tags type, readTags/writeTags (spawn `uv run tags.py`)
 └─ routes/
@@ -122,7 +122,7 @@ The placeholder `downloads/` and `tagging/` folders get removed in chunk 2.
 ┌──────────────────────── Docker container ────────────────────────┐
 │  SvelteKit (Bun)                                                 │
 │   ├─ hooks.server.ts ──► auth.ts                                 │
-│   ├─ routes ──► jobs.ts ──► ytdlp.ts ──► download.sh ──► yt-dlp  │
+│   ├─ routes ──► jobs.ts ──► downloads.ts ──► download.sh ──► yt-dlp  │
 │   │         ├─► files.ts                                         │
 │   │         └─► tags.ts ──► tags.py ──► mutagen                  │
 │  uv, yt-dlp, ffmpeg (in image)                                   │
@@ -267,10 +267,10 @@ The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code an
 
 When every video is already in the download archive, yt-dlp exits 0 without printing any paths, so the job ends as `DONE` with an empty `files` list. The jobs page should show that as "already downloaded".
 
-**`ytdlp.ts`** spawns the script with an argument array and:
+**`downloads.ts`** spawns the script with an argument array and:
 
 - reads stdout line by line. Lines with the `[progress]` prefix update `job.progress`. Every other line is a finished file's path and is added to `job.files`.
-- sets the job to `DONE` on exit code 0, or to `FAILED` with the last few stderr lines in `error` otherwise.
+- sets the job to `DONE` on exit code 0, or to `FAILED` with `error` set otherwise. For now `error` only says which exit code the download ended with; parsing yt-dlp's `ERROR:` lines from stderr into it is a TODO.
 
 A small queue in `jobs.ts` runs up to `MAX_CONCURRENT` jobs at a time.
 
@@ -438,7 +438,7 @@ Each chunk is a small, self-contained commit (ideally under ~100 lines) that pas
 1. Home page form and `parseURL` validation in `jobs.ts`, which shows errors (no download yet).
 2. `jobs.ts`: add the `JobStatus` enum, `Job` type and `addJob`, including the `MAX_JOBS` limit.
 3. `scripts/download.sh`: try it by hand with a video and a playlist, and confirm with `ffprobe` that the AAC audio was copied, not re-encoded.
-4. `ytdlp.ts`: spawn the script, parse progress and file paths, and set the final status.
+4. `downloads.ts`: spawn the script, parse progress and file paths, and set the final status.
 5. `jobs.ts`: add the queue that respects `MAX_CONCURRENT`, create the jobs array in `hooks.server.ts`, and connect the submit action to it.
 
 ### Phase 5 — Jobs page
