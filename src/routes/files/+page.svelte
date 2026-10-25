@@ -97,7 +97,7 @@
       {#each visibleFiles as file (file.path)}
         <tr>
           <td>
-            <a href="/files/{file.path.split('/').map(encodeURIComponent).join('/')}">
+            <a href="/files/{encodeURIComponent(file.path)}">
               {file.path}
             </a>
           </td>

@@ -30,3 +30,16 @@ export async function readTags(filePath: string): Promise<Tags> {
     throw new Error(`failed to read tags`, { cause });
   }
 }
+
+export async function writeTags(filePath: string, tags: Tags): Promise<void> {
+  try {
+    const running = execFileAsync("uv", ["run", "--quiet", TAGS_SCRIPT, "write", filePath]);
+
+    // send the tags to the python script and end the input stream
+    running.child.stdin?.end(JSON.stringify(tags));
+
+    await running;
+  } catch (cause) {
+    throw new Error(`failed to write tags`, { cause });
+  }
+}

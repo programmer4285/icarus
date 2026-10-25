@@ -1,5 +1,6 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { readdir, realpath, rename, stat } from "node:fs/promises";
 import path from "node:path";
+import { assert } from "es-toolkit";
 
 export type AudioFile = {
   path: string;
@@ -53,4 +54,43 @@ export async function resolveInLibrary(
   const isInsideLibrary = resolvedPath.startsWith(libraryRoot + path.sep);
 
   return isInsideLibrary ? resolvedPath : null;
+}
+
+export async function renameFileByTitle(
+  filePath: string,
+  trackNumber: string,
+  title: string,
+): Promise<string> {
+  // strip characters that are not allowed in filenames and,
+  // replace sequences of whitespace with a single space
+  const safeTitle = title
+    .replace(/["*:<>?|/\\\p{Cc}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  assert(safeTitle, `the title "${title}" has no characters that can be used in a filename`);
+
+  const filename = `${trackNumber}. ${safeTitle}.m4a`;
+  const newFilePath = path.join(path.dirname(filePath), filename);
+
+  // if the filepath is unchanged (case-senstive) return early
+  if (newFilePath === filePath) {
+    return filePath;
+  }
+
+  // check if a file with the new name already exists
+  const existingFile = await stat(newFilePath).catch(() => null);
+  if (existingFile) {
+    const currentFile = await stat(filePath);
+
+    // compare by file system IDs (ino) and volumes (dev)
+    const isSameFile = existingFile.ino === currentFile.ino && existingFile.dev === currentFile.dev;
+    if (!isSameFile) {
+      throw new Error(`a file named "${filename}" already exists`);
+    }
+  }
+
+  await rename(filePath, newFilePath);
+
+  return newFilePath;
 }
