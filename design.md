@@ -17,7 +17,7 @@ A self-hosted, Dockerized web app that takes YouTube links (single videos or pla
 - Automated tests.
 - Multiple users or roles. There is one admin account, set with env vars.
 - Sources other than YouTube. `yt-dlp` supports them, but we only accept YouTube URLs.
-- Moving or renaming files after download. The yt-dlp output template decides the layout.
+- Moving files into folders. Downloads land flat in `MUSIC_DIR`; the tag editor only renames a file in place.
 - Batch tagging a whole album in one action. Editing one file at a time comes first.
 - Job history that survives a restart.
 
@@ -49,7 +49,7 @@ What this means for the design:
 | Topic              | Decision                                                                                                                                                                                                               |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Audio format       | `--audio-format m4a --audio-quality 0`: always M4A. The only format the app downloads, lists, and tags (see [Why M4A only](#why-m4a-only))                                                                             |
-| Folder layout      | Everything under one `MUSIC_DIR`, laid out by the output template (`Artist/Album/N. Title.ext`). No per-playlist folders                                                                                               |
+| Folder layout      | Flat: every download goes directly into `MUSIC_DIR` as `N. Title.m4a` (or `Title.m4a` with no track number). No artist, album or playlist folders                                                                      |
 | Job history        | In memory only, capped at `MAX_JOBS` (see [Job history limit](#job-history-limit))                                                                                                                                     |
 | Auth               | One admin user; `ADMIN_USERNAME` and `ADMIN_PASSWORD` env vars; session cookie                                                                                                                                         |
 | `watch?v=X&list=Y` | Download just the video (`--no-playlist`)                                                                                                                                                                              |
@@ -135,18 +135,17 @@ Everything under `src/lib/server/` is server-only, so none of it can be imported
 
 ### Configuration (environment variables)
 
-| Variable          | Default                                     | Used by                                  | Purpose                                                               |
-| ----------------- | ------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------- |
-| `ADMIN_USERNAME`  | required                                    | login route → `auth.ts`                  | Login username                                                        |
-| `ADMIN_PASSWORD`  | required                                    | login route → `auth.ts`                  | Login password                                                        |
-| `COOKIE_SECURE`   | `false`                                     | login/logout routes                      | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
-| `MUSIC_DIR`       | `/music`                                    | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                             |
-| `OUTPUT_TEMPLATE` | see [Running downloads](#running-downloads) | `download.sh`                            | yt-dlp `-o` template, relative to `MUSIC_DIR`                         |
-| `MAX_CONCURRENT`  | `1`                                         | routes → `jobs.ts`                       | Number of jobs run at once                                            |
-| `MAX_JOBS`        | `10`                                        | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                |
-| `PORT`            | `3000`                                      | adapter                                  | HTTP port                                                             |
+| Variable         | Default  | Used by                                  | Purpose                                                               |
+| ---------------- | -------- | ---------------------------------------- | --------------------------------------------------------------------- |
+| `ADMIN_USERNAME` | required | login route → `auth.ts`                  | Login username                                                        |
+| `ADMIN_PASSWORD` | required | login route → `auth.ts`                  | Login password                                                        |
+| `COOKIE_SECURE`  | `false`  | login/logout routes                      | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
+| `MUSIC_DIR`      | `/music` | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                             |
+| `MAX_CONCURRENT` | `1`      | routes → `jobs.ts`                       | Number of jobs run at once                                            |
+| `MAX_JOBS`       | `10`     | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                |
+| `PORT`           | `3000`   | adapter                                  | HTTP port                                                             |
 
-Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, each with a `description` and a zod `schema` that applies the default, converts the value (e.g. `z.stringbool()` turns `"true"` into a boolean) and rejects invalid values. Server files import the typed values from `$app/env/private`. SvelteKit runs the schemas when the app starts, so a missing or invalid variable stops the app with a clear `env_invalid` error. Required variables are allowed to be empty while `building` (from `$app/env`), because SvelteKit runs the app during `bun run build` and they aren't set in the Docker build stage. Each variable is added to `src/env.ts` in the chunk that first uses it. Spawned scripts inherit the app's environment, so `download.sh` sees `MUSIC_DIR` and `OUTPUT_TEMPLATE` directly.
+Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, each with a `description` and a zod `schema` that applies the default, converts the value (e.g. `z.stringbool()` turns `"true"` into a boolean) and rejects invalid values. Server files import the typed values from `$app/env/private`. SvelteKit runs the schemas when the app starts, so a missing or invalid variable stops the app with a clear `env_invalid` error. Required variables are allowed to be empty while `building` (from `$app/env`), because SvelteKit runs the app during `bun run build` and they aren't set in the Docker build stage. Each variable is added to `src/env.ts` in the chunk that first uses it. `download.sh` gets the music folder as an argument instead of reading the environment.
 
 ## Feature 0 — Login
 
@@ -240,31 +239,33 @@ yt-dlp --embed-metadata --embed-thumbnail \
        -o "%(artist)s/%(album)s/%(track_number)02d. %(title)s.%(ext)s" <url>
 ```
 
-**`scripts/download.sh <url>`** runs it with a few flags added so the app can drive it:
+**`scripts/download.sh <music-dir> <url>`** runs it with a few flags added so the app can drive it. The music folder is passed as an argument rather than read from `MUSIC_DIR`, because defaults from `src/env.ts` only exist inside SvelteKit, not in the environment the script inherits:
 
 ```
 yt-dlp --embed-metadata --embed-thumbnail \
        --extractor-args "youtube:player-client=android" \
        -x --audio-format m4a --audio-quality 0 \
-       -P "$MUSIC_DIR" -o "$OUTPUT_TEMPLATE" \
+       -P "$music_dir" -o "$output_template" \
        --no-playlist --no-overwrites \
-       --download-archive "$MUSIC_DIR/.download-archive" \
-       --newline --progress-template "download:[progress]%(progress._percent_str)s" \
+       --download-archive "$music_dir/.download-archive" \
+       --newline --progress --progress-template "download:[progress]%(progress._percent_str)s" \
        --print after_move:filepath \
-       "$1"
+       "$url"
 ```
 
-| Added flag                             | Why                                                                                                                                                                                                                                                                                                                           |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--audio-format m4a` (replaces `best`) | Always M4A (see [Why M4A only](#why-m4a-only))                                                                                                                                                                                                                                                                                |
-| `-P "$MUSIC_DIR"`                      | Base folder for the output template                                                                                                                                                                                                                                                                                           |
-| `--no-playlist`                        | For ambiguous `watch?v=X&list=Y` links, download just the video. Playlist links (`playlist?list=`) still download the whole playlist                                                                                                                                                                                          |
-| `--no-overwrites`                      | Re-submitting a link never clobbers an existing file                                                                                                                                                                                                                                                                          |
-| `--download-archive …`                 | yt-dlp records the ID of every video it downloads in this file and skips them on later runs. This makes retries only fetch what's missing, and stops re-downloads of files you've since renamed through the tag editor (which `--no-overwrites` alone wouldn't catch). The file starts with `.`, so the files page ignores it |
-| `--newline --progress-template …`      | One progress line per update, with a fixed prefix that's easy to parse                                                                                                                                                                                                                                                        |
-| `--print after_move:filepath`          | Prints each file's final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension                                                                                                                                              |
+| Added flag                                   | Why                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--audio-format m4a` (replaces `best`)       | Always M4A (see [Why M4A only](#why-m4a-only))                                                                                                                                                                                                                                                                                |
+| `-P "$music_dir"`                            | Base folder for the output template                                                                                                                                                                                                                                                                                           |
+| `--no-playlist`                              | For ambiguous `watch?v=X&list=Y` links, download just the video. Playlist links (`playlist?list=`) still download the whole playlist                                                                                                                                                                                          |
+| `--no-overwrites`                            | Re-submitting a link never clobbers an existing file                                                                                                                                                                                                                                                                          |
+| `--download-archive …`                       | yt-dlp records the ID of every video it downloads in this file and skips them on later runs. This makes retries only fetch what's missing, and stops re-downloads of files you've since renamed through the tag editor (which `--no-overwrites` alone wouldn't catch). The file starts with `.`, so the files page ignores it |
+| `--newline --progress --progress-template …` | One progress line per update, with a fixed prefix that's easy to parse. `--progress` is needed because `--print` implies `--quiet`, which would otherwise hide progress                                                                                                                                                       |
+| `--print after_move:filepath`                | Prints each file's final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension                                                                                                                                              |
 
-The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and killing the script process kills the download (used by cancel). You can run it by hand, e.g. `MUSIC_DIR=~/Music/test scripts/download.sh <url>`.
+The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and killing the script process kills the download (used by cancel). You can run it by hand, e.g. `scripts/download.sh ~/Music/test <url>`.
+
+When every video is already in the download archive, yt-dlp exits 0 without printing any paths, so the job ends as `DONE` with an empty `files` list. The jobs page should show that as "already downloaded".
 
 **`ytdlp.ts`** spawns the script with an argument array and:
 
@@ -273,20 +274,17 @@ The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code an
 
 A small queue in `jobs.ts` runs up to `MAX_CONCURRENT` jobs at a time.
 
-**Output template and missing fields.** Your template relies on `artist`, `album`, and `track_number`. Those exist for official "auto-generated by YouTube" music uploads, but not for ordinary videos. When a field is missing, yt-dlp puts in `NA`, so a random video becomes `NA/NA/NA. Title.m4a`. The script's default (`${OUTPUT_TEMPLATE:-…}`) uses yt-dlp's documented `|default` and `&replacement` syntax:
+**Output template.** The script uses a fixed template that puts every file directly in the music folder:
 
 ```
-%(artist,uploader|Unknown Artist)s/%(album|Singles)s/%(track_number&{}. |)s%(title)s.%(ext)s
+%(track_number&{}. |)s%(title)s.%(ext)s
 ```
 
-- Falls back to the uploader name if there's no artist.
-- Uses `Singles` if there's no album.
-- Writes the track number without zero-padding (`4. Title.m4a`), matching how the tag editor renames files (`<track number>. <title>.m4a`).
-- Leaves out the `N.` prefix entirely when there's no track number.
+- With a track number: `1. Some Title.m4a`, unpadded, the same as the tag editor's rename format (`<track number>. <title>.m4a`).
+- Without one (most ordinary YouTube videos): just `Some Title.m4a`. The `&{}. |` syntax adds the `N. ` prefix only when `track_number` exists, so the name never starts with `NA. `. The first tag save renames it to `N. Title.m4a`, since the editor requires a track number.
+- Every `%(field)` needs a conversion letter (`%(title)s`). Without one, yt-dlp can't build a filename.
 
-One difference remains: for characters that aren't allowed in filenames, yt-dlp substitutes look-alikes (`?` → `？`), while the editor strips them. So `What?` downloads as `4. What？.m4a` and becomes `4. What.m4a` the first time its tags are saved.
-
-`OUTPUT_TEMPLATE` lets you override it, including with your original template.
+For characters that aren't allowed in filenames, yt-dlp substitutes look-alikes (`?` → `？`), while the editor strips them. So `What?` downloads as `What？.m4a` and becomes `4. What.m4a` the first time its tags are saved.
 
 ### UI
 
@@ -301,7 +299,7 @@ One difference remains: for characters that aren't allowed in filenames, yt-dlp 
 
 **`files.ts` exports** `listAudioFiles(rootDir)` and `resolveInLibrary(rootDir, relativePath)`. The routes pass `MUSIC_DIR` as `rootDir`.
 
-- Recursively list audio files under `MUSIC_DIR` (the `Artist/Album/` folders), keeping only `.m4a` files.
+- Recursively list audio files under `MUSIC_DIR`, keeping only `.m4a` files. Downloads are flat, but files you add yourself can be in subfolders.
 - Show path (relative), size, and modified time.
 - Sort by modified time (newest first) by default. Add a simple client-side text filter.
 - Clicking a file opens the editor at `/files/<relative path>`.
@@ -402,7 +400,7 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 
 - Private, deleted, or age-restricted videos in a playlist: yt-dlp skips them and downloads the rest. The job ends as `FAILED` with yt-dlp's message in `error`, and `files` lists what did download.
 - Duplicate submissions: allowed. `--download-archive` makes yt-dlp skip videos it has already downloaded, so the job finishes quickly as `DONE` without re-downloading.
-- Two different videos that resolve to the same `Artist/Album/N. Title` path: the second one is skipped by `--no-overwrites`. Accepted for now. If it becomes a problem, add `[%(id)s]` to the template.
+- Two different videos that resolve to the same `N. Title.m4a` (e.g. two albums each with a `1. Intro`): with a flat folder this is more likely. The second is skipped by `--no-overwrites`, without an error. Accepted for now. If it becomes a problem, add `[%(id)s]` to the template, or go back to `Artist/Album/` folders.
 - A file mutagen can't open (unknown format or corrupt): `tags.py` exits non-zero and the editor shows the error.
 - Container restart: all jobs and sessions are lost. Files that already finished are safe on disk.
 
