@@ -27,7 +27,10 @@
 {#if form?.error}
   <p class="message error" role="alert">{form.error}</p>
 {:else if form?.submitted}
-  <p class="message queued" role="status">Download queued!</p>
+  <p class="message" role="status">
+    <span class="queued">Download queued!</span>
+    <a href="/jobs">View jobs</a>
+  </p>
 {/if}
 
 <style>
