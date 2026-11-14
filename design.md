@@ -288,7 +288,8 @@ For characters that aren't allowed in filenames, yt-dlp substitutes look-alikes 
 - A failed job shows its error text.
 - The page's `load` function returns the job list. While any job is queued or running, the page calls `refreshAll()` every ~2 seconds to reload it. This needs no separate JSON endpoint.
 - Queued and running jobs have a **Cancel** button (the `cancel` form action).
-- Later chunks: retry a failed job, clear finished jobs. These are form actions on the same page.
+- Failed and cancelled jobs have a **Retry** button (the `retry` action). It queues a new job with the same URL through `addJob` and `processQueue`, the same as submitting the link again, so there's no reset logic. The old job stays in the history.
+- A **Clear finished** button (the `clear` action, shown when there are finished jobs) removes every `DONE`, `FAILED` and `CANCELLED` job with `clearFinishedJobs(jobs)`. Queued and running jobs stay.
 
 ### Cancelling
 

@@ -22,6 +22,8 @@ export type Cancellers = Map<string, () => void>;
 
 const FINISHED_STATUSES = [JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED];
 
+export const RETRIABLE_STATUSES = [JobStatus.FAILED, JobStatus.CANCELLED];
+
 const YOUTUBE_HOSTS = ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"];
 
 const videoIDSchema = z
@@ -123,4 +125,12 @@ export function cancelJob(jobs: Job[], cancellers: Cancellers, id: string): void
 
   job.status = JobStatus.CANCELLED;
   cancellers.get(job.id)?.();
+}
+
+export function clearFinishedJobs(jobs: Job[]): void {
+  for (let index = jobs.length - 1; index >= 0; index--) {
+    if (FINISHED_STATUSES.includes(jobs[index].status)) {
+      jobs.splice(index, 1);
+    }
+  }
 }

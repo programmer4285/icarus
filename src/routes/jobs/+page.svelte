@@ -5,10 +5,14 @@
 
   const RELOAD_INTERVAL_MS = 2000;
 
-  let { data }: PageProps = $props();
+  let { data, form }: PageProps = $props();
 
   const hasActiveJobs = $derived(
     data.jobs.some((job) => job.status === "queued" || job.status === "running"),
+  );
+
+  const hasFinishedJobs = $derived(
+    data.jobs.some((job) => job.status !== "queued" && job.status !== "running"),
   );
 
   $effect(() => {
@@ -25,7 +29,18 @@
   <title>Jobs · Icarus</title>
 </svelte:head>
 
-<h1>Jobs</h1>
+<div class="title">
+  <h1>Jobs</h1>
+  {#if hasFinishedJobs}
+    <form method="POST" action="?/clear" use:enhance>
+      <button type="submit">Clear finished</button>
+    </form>
+  {/if}
+</div>
+
+{#if form?.error}
+  <p class="error" role="alert">{form.error}</p>
+{/if}
 
 {#if data.jobs.length === 0}
   <p class="muted">No jobs yet. <a href="/">Start a download</a>.</p>
@@ -40,7 +55,12 @@
           {#if job.status === "queued" || job.status === "running"}
             <form method="POST" action="?/cancel" use:enhance>
               <input type="hidden" name="id" value={job.id} />
-              <button type="submit">Cancel</button>
+              <button type="submit" class="cancel">Cancel</button>
+            </form>
+          {:else if job.status === "failed" || job.status === "cancelled"}
+            <form method="POST" action="?/retry" use:enhance>
+              <input type="hidden" name="id" value={job.id} />
+              <button type="submit">Retry</button>
             </form>
           {/if}
         </div>
@@ -119,8 +139,26 @@
   }
 
   button:hover {
+    border-color: var(--color-button-hover);
+    color: var(--color-button-hover);
+  }
+
+  button.cancel:hover {
     border-color: var(--color-error);
     color: var(--color-error);
+  }
+
+  .title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    margin-bottom: var(--space-4);
+  }
+
+  .title h1 {
+    margin: 0;
   }
 
   .status {
