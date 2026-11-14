@@ -40,4 +40,18 @@ export const variables = defineEnvVars({
           .max(1000, "MAX_JOBS must be <= 1000"),
       ),
   },
+  MAX_CONCURRENT: {
+    description: "Maximum number of downloads that run at the same time",
+    schema: z
+      .string()
+      .default("1")
+      .transform(Number)
+      .pipe(
+        z
+          .number("MAX_CONCURRENT must be a number")
+          .int("MAX_CONCURRENT must be a whole number")
+          .min(1, "MAX_CONCURRENT must be >= 1")
+          .max(10, "MAX_CONCURRENT must be <= 10"),
+      ),
+  },
 });

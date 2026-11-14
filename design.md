@@ -226,7 +226,7 @@ type Job = {
 
 **`jobs.ts` exports** `addJob(jobs, url, maxJobs)`. Following rule 11, it takes the jobs array as a parameter: `hooks.server.ts` creates the array and shares it with routes through `event.locals`, the same way as the sessions map.
 
-Jobs are kept newest first. `addJob` puts the new job at the front, then removes the oldest **finished** jobs (`DONE`, `FAILED`, `CANCELLED`) until there are at most `MAX_JOBS`. Queued and running jobs are never removed, so the list can briefly go over the limit if you queue more than `MAX_JOBS` at once.
+Jobs are kept oldest first, so the array is also the queue order. The jobs page reverses it to show the newest first. `addJob` puts the new job at the end, then removes the oldest **finished** jobs (`DONE`, `FAILED`, `CANCELLED`) until there are at most `MAX_JOBS`. Queued and running jobs are never removed, so the list can briefly go over the limit if you queue more than `MAX_JOBS` at once.
 
 ### Running downloads
 

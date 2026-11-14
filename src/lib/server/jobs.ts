@@ -73,15 +73,41 @@ export function addJob(jobs: Job[], url: string, maxJobs: number): Job {
     files: [],
   };
 
-  jobs.unshift(job);
+  jobs.push(job);
 
   // enforce max jobs limit, remove oldest jobs first. only remove finished jobs
   const finished = [JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED];
-  for (let index = jobs.length - 1; index >= 0 && jobs.length > maxJobs; index--) {
+  let index = 0;
+  while (index < jobs.length && jobs.length > maxJobs) {
     if (finished.includes(jobs[index].status)) {
       jobs.splice(index, 1);
+    } else {
+      index++;
     }
   }
 
   return job;
+}
+
+export function processQueue(
+  jobs: Job[],
+  maxConcurrent: number,
+  runJob: (job: Job) => Promise<void>,
+): void {
+  const runningCount = jobs.filter((job) => job.status === JobStatus.RUNNING).length;
+  const queued = jobs.filter((job) => job.status === JobStatus.QUEUED);
+  const jobsToStart = queued.slice(0, Math.max(0, maxConcurrent - runningCount));
+
+  jobsToStart.forEach((job) => {
+    job.status = JobStatus.RUNNING;
+
+    runJob(job)
+      .catch((err) => {
+        job.status = JobStatus.FAILED;
+        job.error = String(err);
+      })
+      .finally(() => {
+        processQueue(jobs, maxConcurrent, runJob);
+      });
+  });
 }
