@@ -25,8 +25,7 @@ exec yt-dlp \
   --paths "$music_dir" \
   --output "$output_template" \
   --no-playlist \
-  --no-overwrites \
-  --download-archive "$music_dir/.download-archive" \
+  --force-overwrites \
   --newline \
   --progress \
   --progress-template "download:[progress]%(progress._percent_str)s" \

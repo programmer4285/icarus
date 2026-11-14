@@ -1,7 +1,23 @@
 <script lang="ts">
+  import { refreshAll } from "$app/navigation";
   import type { PageProps } from "./$types";
 
+  const RELOAD_INTERVAL_MS = 2000;
+
   let { data }: PageProps = $props();
+
+  const hasActiveJobs = $derived(
+    data.jobs.some((job) => job.status === "queued" || job.status === "running"),
+  );
+
+  $effect(() => {
+    if (!hasActiveJobs) {
+      return;
+    }
+
+    const interval = setInterval(() => refreshAll(), RELOAD_INTERVAL_MS);
+    return () => clearInterval(interval);
+  });
 </script>
 
 <svelte:head>
@@ -22,6 +38,14 @@
           <span class="muted">{new Date(job.createdAt).toLocaleString()}</span>
         </div>
 
+        {#if job.status === "running"}
+          <div class="progress">
+            <progress max="100" value={job.progress} aria-label="Current video progress"
+            ></progress>
+            <span class="muted">{job.progress.toFixed(1)}%</span>
+          </div>
+        {/if}
+
         {#if job.error}
           <p class="error">{job.error}</p>
         {/if}
@@ -32,8 +56,6 @@
               <li>{file}</li>
             {/each}
           </ul>
-        {:else if job.status === "done"}
-          <p class="muted">Already downloaded.</p>
         {/if}
       </li>
     {/each}
@@ -95,6 +117,24 @@
 
   .status.failed {
     color: var(--color-error);
+  }
+
+  .progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  progress {
+    flex: 1;
+    height: 0.5rem;
+    accent-color: var(--color-button);
+  }
+
+  .progress .muted {
+    min-width: 3.5rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
 
   .error {

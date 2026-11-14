@@ -219,7 +219,7 @@ type Job = {
 **Trade-offs of one run per job:**
 
 - **A partly failed playlist shows as `FAILED`.** yt-dlp skips a private or deleted video and carries on (`--no-abort-on-error` is its default), but exits non-zero at the end. `files` still lists everything that downloaded, and `error` explains the failure.
-- **Retry reruns the whole URL.** `--download-archive` (see below) makes yt-dlp skip videos it has already downloaded, so a retry only fetches what's missing.
+- **Retry reruns the whole URL.** Every video downloads again, including ones that finished the first time.
 - **Cancel stops the whole run.**
 
 ### Job history limit
@@ -246,26 +246,22 @@ yt-dlp --embed-metadata --embed-thumbnail \
        --extractor-args "youtube:player-client=android" \
        -x --audio-format m4a --audio-quality 0 \
        -P "$music_dir" -o "$output_template" \
-       --no-playlist --no-overwrites \
-       --download-archive "$music_dir/.download-archive" \
+       --no-playlist --force-overwrites \
        --newline --progress --progress-template "download:[progress]%(progress._percent_str)s" \
        --print after_move:filepath \
        "$url"
 ```
 
-| Added flag                                   | Why                                                                                                                                                                                                                                                                                                                           |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--audio-format m4a` (replaces `best`)       | Always M4A (see [Why M4A only](#why-m4a-only))                                                                                                                                                                                                                                                                                |
-| `-P "$music_dir"`                            | Base folder for the output template                                                                                                                                                                                                                                                                                           |
-| `--no-playlist`                              | For ambiguous `watch?v=X&list=Y` links, download just the video. Playlist links (`playlist?list=`) still download the whole playlist                                                                                                                                                                                          |
-| `--no-overwrites`                            | Re-submitting a link never clobbers an existing file                                                                                                                                                                                                                                                                          |
-| `--download-archive …`                       | yt-dlp records the ID of every video it downloads in this file and skips them on later runs. This makes retries only fetch what's missing, and stops re-downloads of files you've since renamed through the tag editor (which `--no-overwrites` alone wouldn't catch). The file starts with `.`, so the files page ignores it |
-| `--newline --progress --progress-template …` | One progress line per update, with a fixed prefix that's easy to parse. `--progress` is needed because `--print` implies `--quiet`, which would otherwise hide progress                                                                                                                                                       |
-| `--print after_move:filepath`                | Prints each file's final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension                                                                                                                                              |
+| Added flag                                   | Why                                                                                                                                                                              |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--audio-format m4a` (replaces `best`)       | Always M4A (see [Why M4A only](#why-m4a-only))                                                                                                                                   |
+| `-P "$music_dir"`                            | Base folder for the output template                                                                                                                                              |
+| `--no-playlist`                              | For ambiguous `watch?v=X&list=Y` links, download just the video. Playlist links (`playlist?list=`) still download the whole playlist                                             |
+| `--force-overwrites`                         | Re-submitting a link replaces a file with the same name, including any tag edits made to it                                                                                      |
+| `--newline --progress --progress-template …` | One progress line per update, with a fixed prefix that's easy to parse. `--progress` is needed because `--print` implies `--quiet`, which would otherwise hide progress          |
+| `--print after_move:filepath`                | Prints each file's final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension |
 
 The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and killing the script process kills the download (used by cancel). You can run it by hand, e.g. `scripts/download.sh ~/Music/test <url>`.
-
-When every video is already in the download archive, yt-dlp exits 0 without printing any paths, so the job ends as `DONE` with an empty `files` list. The jobs page should show that as "already downloaded".
 
 **`downloads.ts`** spawns the script with an argument array and:
 
@@ -399,8 +395,8 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 ## Error handling and edge cases
 
 - Private, deleted, or age-restricted videos in a playlist: yt-dlp skips them and downloads the rest. The job ends as `FAILED` with yt-dlp's message in `error`, and `files` lists what did download.
-- Duplicate submissions: allowed. `--download-archive` makes yt-dlp skip videos it has already downloaded, so the job finishes quickly as `DONE` without re-downloading.
-- Two different videos that resolve to the same `N. Title.m4a` (e.g. two albums each with a `1. Intro`): with a flat folder this is more likely. The second is skipped by `--no-overwrites`, without an error. Accepted for now. If it becomes a problem, add `[%(id)s]` to the template, or go back to `Artist/Album/` folders.
+- Duplicate submissions: allowed. The video downloads again and overwrites a file with the same name, losing any tag edits. A file the tag editor has renamed (`Title.m4a` → `N. Title.m4a`) has a different name, so the re-download sits next to it as a second copy.
+- Two different videos that resolve to the same `N. Title.m4a` (e.g. two albums each with a `1. Intro`): with a flat folder this is more likely. The second overwrites the first, without an error. Accepted for now. If it becomes a problem, add `[%(id)s]` to the template, or go back to `Artist/Album/` folders.
 - A file mutagen can't open (unknown format or corrupt): `tags.py` exits non-zero and the editor shows the error.
 - Container restart: all jobs and sessions are lost. Files that already finished are safe on disk.
 
