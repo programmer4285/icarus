@@ -24,7 +24,9 @@ export const actions = {
     }
 
     addJob(locals.jobs, result.url, MAX_JOBS);
-    processQueue(locals.jobs, MAX_CONCURRENT, (job) => runDownload(job, MUSIC_DIR));
+    processQueue(locals.jobs, MAX_CONCURRENT, (job) =>
+      runDownload(job, MUSIC_DIR, locals.cancellers),
+    );
 
     return { submitted: true };
   },

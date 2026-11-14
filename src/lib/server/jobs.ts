@@ -18,6 +18,10 @@ export type Job = {
   error?: string;
 };
 
+export type Cancellers = Map<string, () => void>;
+
+const FINISHED_STATUSES = [JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED];
+
 const YOUTUBE_HOSTS = ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"];
 
 const videoIDSchema = z
@@ -76,10 +80,9 @@ export function addJob(jobs: Job[], url: string, maxJobs: number): Job {
   jobs.push(job);
 
   // enforce max jobs limit, remove oldest jobs first. only remove finished jobs
-  const finished = [JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED];
   let index = 0;
   while (index < jobs.length && jobs.length > maxJobs) {
-    if (finished.includes(jobs[index].status)) {
+    if (FINISHED_STATUSES.includes(jobs[index].status)) {
       jobs.splice(index, 1);
     } else {
       index++;
@@ -110,4 +113,14 @@ export function processQueue(
         processQueue(jobs, maxConcurrent, runJob);
       });
   });
+}
+
+export function cancelJob(jobs: Job[], cancellers: Cancellers, id: string): void {
+  const job = jobs.find((job) => job.id === id);
+  if (!job || FINISHED_STATUSES.includes(job.status)) {
+    return;
+  }
+
+  job.status = JobStatus.CANCELLED;
+  cancellers.get(job.id)?.();
 }

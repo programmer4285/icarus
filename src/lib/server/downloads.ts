@@ -1,15 +1,24 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { type Job, JobStatus } from "./jobs.ts";
+import { type Cancellers, type Job, JobStatus } from "./jobs.ts";
 
 const DOWNLOAD_SCRIPT = "scripts/download.sh";
 const PROGRESS_PREFIX = "[progress]";
 
-export async function runDownload(job: Job, musicDir: string): Promise<void> {
-  job.status = JobStatus.RUNNING;
+export async function runDownload(
+  job: Job,
+  musicDir: string,
+  cancellers: Cancellers,
+): Promise<void> {
+  const proc = spawn(DOWNLOAD_SCRIPT, [musicDir, job.url], { detached: true });
 
-  const proc = spawn(DOWNLOAD_SCRIPT, [musicDir, job.url]);
+  cancellers.set(job.id, () => {
+    const hasExited = proc.exitCode !== null || proc.signalCode !== null;
+    if (proc.pid !== undefined && !hasExited) {
+      process.kill(-proc.pid, "SIGTERM");
+    }
+  });
 
   createInterface({ input: proc.stdout }).on("line", (line) => {
     if (line.startsWith(PROGRESS_PREFIX)) {
@@ -37,6 +46,12 @@ export async function runDownload(job: Job, musicDir: string): Promise<void> {
       resolve(code);
     });
   });
+
+  cancellers.delete(job.id);
+
+  if (job.status === JobStatus.CANCELLED) {
+    return;
+  }
 
   if (exitCode === 0) {
     job.status = JobStatus.DONE;

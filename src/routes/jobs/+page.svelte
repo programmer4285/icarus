@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { refreshAll } from "$app/navigation";
   import type { PageProps } from "./$types";
 
@@ -36,6 +37,12 @@
           <span class="status {job.status}">{job.status}</span>
           <a href={job.url} target="_blank" rel="noreferrer">{job.url}</a>
           <span class="muted">{new Date(job.createdAt).toLocaleString()}</span>
+          {#if job.status === "queued" || job.status === "running"}
+            <form method="POST" action="?/cancel" use:enhance>
+              <input type="hidden" name="id" value={job.id} />
+              <button type="submit">Cancel</button>
+            </form>
+          {/if}
         </div>
 
         {#if job.status === "running"}
@@ -98,6 +105,22 @@
   .header a {
     flex: 1;
     overflow-wrap: anywhere;
+  }
+
+  button {
+    font: inherit;
+    font-size: 0.875rem;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-background);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  button:hover {
+    border-color: var(--color-error);
+    color: var(--color-error);
   }
 
   .status {

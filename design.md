@@ -261,7 +261,7 @@ yt-dlp --embed-metadata --embed-thumbnail \
 | `--newline --progress --progress-template …` | One progress line per update, with a fixed prefix that's easy to parse. `--progress` is needed because `--print` implies `--quiet`, which would otherwise hide progress          |
 | `--print after_move:filepath`                | Prints each file's final path after extraction and thumbnail embedding. The yt-dlp docs say this is the reliable way to get it, because post-processing can change the extension |
 
-The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and killing the script process kills the download (used by cancel). You can run it by hand, e.g. `scripts/download.sh ~/Music/test <url>`.
+The script uses `set -euo pipefail` and `exec`s yt-dlp, so yt-dlp's exit code and output pass straight through, and the script process is the yt-dlp process (see [Cancelling](#cancelling)). You can run it by hand, e.g. `scripts/download.sh ~/Music/test <url>`.
 
 **`downloads.ts`** spawns the script with an argument array and:
 
@@ -286,8 +286,20 @@ For characters that aren't allowed in filenames, yt-dlp substitutes look-alikes 
 
 - A list of jobs, newest first, each showing the URL, status, progress of the current video, and the files downloaded so far.
 - A failed job shows its error text.
-- The page's `load` function returns the job list. While any job is queued or running, the page calls `invalidateAll()` every ~2 seconds to reload it. This needs no separate JSON endpoint.
-- Later chunks: cancel a job, retry a failed job, clear finished jobs. These are form actions on the same page.
+- The page's `load` function returns the job list. While any job is queued or running, the page calls `refreshAll()` every ~2 seconds to reload it. This needs no separate JSON endpoint.
+- Queued and running jobs have a **Cancel** button (the `cancel` form action).
+- Later chunks: retry a failed job, clear finished jobs. These are form actions on the same page.
+
+### Cancelling
+
+**`jobs.ts` exports** `cancelJob(jobs, cancellers, id)` and the `Cancellers` type (`Map<string, () => void>`, job ID → function that stops its process). `hooks.server.ts` creates the map and shares it through `event.locals`, like the jobs array.
+
+- A queued job is just marked `CANCELLED`. `processQueue` only starts `QUEUED` jobs, so it's skipped.
+- For a running job, `runDownload` registers a canceller when it spawns the script and removes it when the process exits. `cancelJob` marks the job `CANCELLED`, then calls it.
+- yt-dlp starts ffmpeg as a child process, and killing only yt-dlp would leave ffmpeg running. So the script is spawned with `detached: true`, which puts it in its own process group, and the canceller sends `SIGTERM` to the whole group (`process.kill(-pid)`).
+- When the killed process exits, `runDownload` sees the job is `CANCELLED` and leaves it that way instead of marking it `FAILED`.
+- yt-dlp may leave a partial `.part` or temp file behind. The files page only lists `.m4a` files, so these stay hidden.
+- Because the process group is separate, stopping the dev server with Ctrl-C doesn't stop a running download; it finishes on its own. In Docker, stopping the container stops everything.
 
 ## Feature 3 — Files page
 
