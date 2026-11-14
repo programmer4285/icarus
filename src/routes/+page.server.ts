@@ -2,7 +2,7 @@ import { fail } from "@sveltejs/kit";
 import { z } from "zod";
 import { MAX_CONCURRENT, MAX_JOBS, MUSIC_DIR } from "$app/env/private";
 import { runDownload } from "#lib/server/downloads.ts";
-import { addJob, parseURL, processQueue } from "#lib/server/jobs.ts";
+import { addJob, parseURL, processQueue, type Job } from "#lib/server/jobs.ts";
 import type { Actions } from "./$types";
 
 const urlSchema = z.url("That doesn't look like a URL 🤨").transform((val) => new URL(val));
@@ -24,9 +24,10 @@ export const actions = {
     }
 
     addJob(locals.jobs, result.url, MAX_JOBS);
-    processQueue(locals.jobs, MAX_CONCURRENT, (job) =>
-      runDownload(job, MUSIC_DIR, locals.cancellers),
-    );
+
+    const runJob = (job: Job) => runDownload(job, MUSIC_DIR, locals.cancellers);
+
+    processQueue(locals.jobs, MAX_CONCURRENT, runJob);
 
     return { submitted: true };
   },
