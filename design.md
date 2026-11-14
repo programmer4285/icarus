@@ -135,15 +135,16 @@ Everything under `src/lib/server/` is server-only, so none of it can be imported
 
 ### Configuration (environment variables)
 
-| Variable         | Default  | Used by                                  | Purpose                                                               |
-| ---------------- | -------- | ---------------------------------------- | --------------------------------------------------------------------- |
-| `ADMIN_USERNAME` | required | login route → `auth.ts`                  | Login username                                                        |
-| `ADMIN_PASSWORD` | required | login route → `auth.ts`                  | Login password                                                        |
-| `COOKIE_SECURE`  | `false`  | login/logout routes                      | Set to `true` when served over HTTPS (see [Login](#feature-0--login)) |
-| `MUSIC_DIR`      | `/music` | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                             |
-| `MAX_CONCURRENT` | `1`      | routes → `jobs.ts`                       | Number of jobs run at once                                            |
-| `MAX_JOBS`       | `10`     | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                |
-| `PORT`           | `3000`   | adapter                                  | HTTP port                                                             |
+| Variable         | Default  | Used by                                  | Purpose                                                                       |
+| ---------------- | -------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `ADMIN_USERNAME` | required | login route → `auth.ts`                  | Login username                                                                |
+| `ADMIN_PASSWORD` | required | login route → `auth.ts`                  | Login password                                                                |
+| `COOKIE_SECURE`  | `false`  | login/logout routes                      | Set to `true` when served over HTTPS (see [Login](#feature-0--login))         |
+| `MUSIC_DIR`      | `/music` | files routes → `files.ts`, `download.sh` | Where audio files are written and browsed                                     |
+| `MAX_CONCURRENT` | `1`      | routes → `jobs.ts`                       | Number of jobs run at once                                                    |
+| `MAX_JOBS`       | `10`     | routes → `jobs.ts`                       | Maximum number of jobs kept in history                                        |
+| `PORT`           | `3000`   | adapter                                  | HTTP port                                                                     |
+| `ORIGIN`         | none     | `vite.config.ts` (**build time**)        | Public URL, e.g. `http://192.168.1.10:3000`. Needed for plain HTTP (see CSRF) |
 
 Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, each with a `description` and a zod `schema` that applies the default, converts the value (e.g. `z.stringbool()` turns `"true"` into a boolean) and rejects invalid values. Server files import the typed values from `$app/env/private`. SvelteKit runs the schemas when the app starts, so a missing or invalid variable stops the app with a clear `env_invalid` error. Required variables are allowed to be empty while `building` (from `$app/env`), because SvelteKit runs the app during `bun run build` and they aren't set in the Docker build stage. Each variable is added to `src/env.ts` in the chunk that first uses it. `download.sh` gets the music folder as an argument instead of reading the environment.
 
@@ -166,7 +167,7 @@ Every variable is declared in `src/env.ts` with SvelteKit 3's `defineEnvVars`, e
 
 **Cookie gotcha:** SvelteKit sets cookies as `Secure` by default, except on `localhost`. Browsers drop `Secure` cookies sent over plain HTTP, so on a LAN address like `http://192.168.1.10:3000` login would silently fail. That's why `secure` is set explicitly from `COOKIE_SECURE`.
 
-**CSRF:** SvelteKit's built-in origin check covers every form POST, including form actions and endpoints like `/logout`. It's turned off in the dev server, so it can only be tested against a production build (add this to the Docker phase checks). Behind a reverse proxy, the adapter needs to know the public origin (check `adapter-bun`'s `ORIGIN` / header settings in the Docker phase).
+**CSRF:** SvelteKit's built-in origin check covers every form POST, including form actions and endpoints like `/logout`. It's turned off in the dev server, so it can only be tested against a production build. `adapter-bun` assumes TLS ends at a proxy in front of it, so it treats every request's origin as `https://<host>`. Served directly over plain HTTP, the browser's `Origin: http://…` doesn't match and every form POST, including login, fails with 403 "Cross-site POST form submissions are forbidden". The fix is `paths.origin`, which `vite.config.ts` reads from `ORIGIN`. It's a build-time setting (adapter-bun has no runtime `ORIGIN` variable), so the Docker image is built with `ORIGIN` as a build argument, and changing the IP or port means rebuilding. Behind a reverse proxy later, `PROTOCOL_HEADER=x-forwarded-proto` would replace it. Checked against a production build: with `ORIGIN` set, posts from the right origin work, and posts with another origin or none get 403.
 
 ## Feature 1 — Submitting a link
 
@@ -385,7 +386,7 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 ## Docker
 
 - Multi-stage `Dockerfile`:
-  1. `oven/bun` build stage: `bun install`, `bun run --bun build`. `adapter-bun` refuses to build unless Vite runs under Bun. **Known issue:** with Bun 1.3.4, Vite 8 and SvelteKit 3, the `--bun` build stops after "Analysing routes" and still exits 0, so no `build/` folder is written. Check this again before the Docker phase, and make the Dockerfile fail if `build/index.js` is missing.
+  1. `oven/bun` build stage: `bun install`, `bun run --bun build`. `adapter-bun` refuses to build unless Vite runs under Bun. Needs **Bun 1.4.4 or newer**: with Bun 1.3.4, Vite 8 and SvelteKit 3, the build stops after "Analysing routes" and still exits 0, so no `build/` folder is written (the route-analysis worker's `process.exit()` takes the whole build process down). Pin the image to a fixed 1.4.x version, and make the Dockerfile fail if `build/index.js` is missing. The `ORIGIN` build argument must be set in this stage.
   2. Runtime stage: Bun, `ffmpeg` and `uv` (copied from the official `ghcr.io/astral-sh/uv` image).
      - yt-dlp: `uv tool install 'yt-dlp[default]==<version>'`, with `UV_TOOL_BIN_DIR` on `PATH`. The `default` extra includes mutagen, which `--embed-thumbnail` uses.
      - `tags.py`: copy `scripts/` in, then run `uv sync --script scripts/tags.py` at build time so mutagen is already installed and the first tag edit doesn't download anything. uv also installs Python if the image doesn't have it.

@@ -11,6 +11,9 @@ export default defineConfig({
           filename.split(/[/\\]/).includes("node_modules") ? undefined : true,
       },
       adapter: adapter(),
+      paths: {
+        origin: process.env.ORIGIN,
+      },
     }),
   ],
   test: {
