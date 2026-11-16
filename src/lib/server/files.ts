@@ -135,10 +135,16 @@ export async function moveToLibrary(
     throw err;
   }
 
+  await deleteFile(musicDir, filePath);
+
+  return destinationPath;
+}
+
+export async function deleteFile(musicDir: string, filePath: string): Promise<void> {
   // delete the original file
   await unlink(filePath);
 
-  // delete directories that are now empty after moving the file
+  // delete directories that are now empty after deleting the file
   const musicRoot = await realpath(musicDir);
   let dir = path.dirname(filePath);
   while (dir.startsWith(musicRoot + path.sep)) {
@@ -149,6 +155,4 @@ export async function moveToLibrary(
     }
     dir = path.dirname(dir);
   }
-
-  return destinationPath;
 }

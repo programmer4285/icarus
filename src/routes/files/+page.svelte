@@ -68,6 +68,8 @@
 
 {#if page.url.searchParams.get("moved")}
   <p class="moved" role="status">Moved to {page.url.searchParams.get("moved")}</p>
+{:else if page.url.searchParams.get("deleted")}
+  <p class="moved" role="status">Deleted {page.url.searchParams.get("deleted")}</p>
 {/if}
 
 {#if data.files.length === 0}

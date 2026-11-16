@@ -68,6 +68,19 @@
     <div class="buttons">
       <button type="submit">Save</button>
       <button type="submit" formaction="?/move" class="secondary">Move to library</button>
+      <button
+        type="submit"
+        formaction="?/delete"
+        formnovalidate
+        class="danger"
+        onclick={(event) => {
+          if (!confirm(`Delete ${data.path}? This can't be undone.`)) {
+            event.preventDefault();
+          }
+        }}
+      >
+        Delete
+      </button>
     </div>
   </form>
 </div>
@@ -181,5 +194,18 @@
   button.secondary:hover {
     background: var(--color-background);
     border-color: var(--color-muted);
+  }
+
+  button.danger {
+    margin-left: auto;
+    background: transparent;
+    border-color: var(--color-error);
+    color: var(--color-error);
+  }
+
+  button.danger:hover {
+    background: var(--color-error);
+    border-color: var(--color-error);
+    color: var(--color-background);
   }
 </style>

@@ -2,7 +2,12 @@ import path from "node:path";
 import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 import { LIBRARY_DIR, MUSIC_DIR } from "$app/env/private";
-import { moveToLibrary, renameFileByTitle, resolveInLibrary } from "#lib/server/files.ts";
+import {
+  deleteFile,
+  moveToLibrary,
+  renameFileByTitle,
+  resolveInLibrary,
+} from "#lib/server/files.ts";
 import { readTags, tagToLabel, TAGS, writeTags, type Tags } from "#lib/server/tags.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -150,5 +155,21 @@ export const actions = {
     const libraryPath = path.relative(LIBRARY_DIR, destinationPath);
 
     redirect(303, `/files?moved=${encodeURIComponent(libraryPath)}`);
+  },
+
+  delete: async ({ params }) => {
+    const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
+    if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
+      error(404, "File not found");
+    }
+
+    try {
+      await deleteFile(MUSIC_DIR, filePath);
+    } catch (err) {
+      console.error(err);
+      return fail(500, { error: `Could not delete the file: ${err}` });
+    }
+
+    redirect(303, `/files?deleted=${encodeURIComponent(params.path)}`);
   },
 } satisfies Actions;
