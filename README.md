@@ -1,56 +1,32 @@
-# sv
+# icarus
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+## Docker Compose
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+Create a `.env` file next to `docker-compose.yml`:
 
 ```sh
-# create a new project
-npx sv create my-app
+ORIGIN=http://localhost:3000
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=changeme
+
+# optional: run as your host user so downloads are owned by you (defaults to 1000)
+PUID=1000
+PGID=1000
 ```
 
-To recreate this project with the same configuration:
+`ORIGIN` must match the URL you open in the browser, e.g. `http://192.168.1.10:3000`. It's built into the image, so changing it means rebuilding. Use `id -u` and `id -g` to find your `PUID` and `PGID`.
 
-```sh
-# recreate this project
-bun x sv@1.1.1 create --template minimal --types ts --add vitest="usages:unit" ai-tools="ide:claude-code+delivery:plugin" sveltekit-adapter="adapter:auto" --install bun icarus
+Then start it. Downloads are saved to `./downloads`, and files moved to the library go to `./library/<Album Artist>/<Album>/`:
+
+```zsh
+mkdir -p downloads library
+docker compose up -d --build
 ```
 
-## Adding features
+### Updating
 
-Add features to your project with `sv add`:
+yt-dlp, Bun and uv aren't pinned, but Docker caches the build, so a normal rebuild keeps the versions you already have. To get the latest ones, rebuild without the cache:
 
-```sh
-npx sv add
+```zsh
+docker compose build --pull --no-cache && docker compose up -d
 ```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.

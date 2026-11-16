@@ -1,0 +1,9 @@
+.git
+.claude
+.svelte-kit
+.env
+.env.*
+.DS_Store
+node_modules
+build
+downloads

@@ -1,0 +1,19 @@
+services:
+  icarus:
+    build:
+      context: .
+      args:
+        ORIGIN: ${ORIGIN:?set ORIGIN in .env, e.g. http://192.168.1.10:3000}
+    user: "${PUID:-1000}:${PGID:-1000}"
+    init: true
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      DOWNLOAD_DIR: /downloads
+      LIBRARY_DIR: /library
+    volumes:
+      - ./downloads:/downloads
+      - ./library:/library
