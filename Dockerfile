@@ -36,7 +36,9 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python \
 RUN uv tool install "yt-dlp[default]" --no-cache
 
 COPY scripts ./scripts
-RUN uv sync --script scripts/tags.py && chown -R bun:bun /opt/uv
+
+# install tags.py's dependencies, then let any uid write to uv's cache (uv run needs it)
+RUN uv sync --script scripts/tags.py && chmod -R a+rwX /opt/uv/cache
 
 # install runtime dependencies
 COPY package.json bun.lock ./
@@ -47,7 +49,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 COPY --from=build /app/build ./build
 
 # run the app
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+  XDG_CACHE_HOME=/tmp/.cache
 USER bun
 EXPOSE 3000/tcp
 ENTRYPOINT [ "bun", "build/index.js" ]

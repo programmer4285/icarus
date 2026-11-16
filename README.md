@@ -1,15 +1,32 @@
 # icarus
 
-Build and run:
+## Docker Compose
+
+Create a `.env` file next to `docker-compose.yml`:
+
+```sh
+ORIGIN=http://localhost:3000
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=changeme
+
+# optional: run as your host user so downloads are owned by you (defaults to 1000)
+PUID=1000
+PGID=1000
+```
+
+`ORIGIN` must match the URL you open in the browser, e.g. `http://192.168.1.10:3000`. It's built into the image, so changing it means rebuilding. Use `id -u` and `id -g` to find your `PUID` and `PGID`.
+
+Then start it. Downloads are saved to `./music`:
 
 ```zsh
-docker build --build-arg ORIGIN=http://localhost:3000 -t icarus .
-
 mkdir -p music
-docker run --rm --init -p 3000:3000 \
-  -v "$PWD/music:/music" \
-  -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD=changeme \
-  --name icarus \
-  icarus
+docker compose up -d --build
+```
+
+### Updating
+
+yt-dlp, Bun and uv aren't pinned, but Docker caches the build, so a normal rebuild keeps the versions you already have. To get the latest ones, rebuild without the cache:
+
+```zsh
+docker compose build --pull --no-cache && docker compose up -d
 ```

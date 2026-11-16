@@ -385,26 +385,16 @@ Saving tags does **not** rename or move the file, even if the artist or album ch
 
 ## Docker
 
-- Multi-stage `Dockerfile`:
-  1. `oven/bun` build stage: `bun install`, `bun run --bun build`. `adapter-bun` refuses to build unless Vite runs under Bun. Needs **Bun 1.4.4 or newer**: with Bun 1.3.4, Vite 8 and SvelteKit 3, the build stops after "Analysing routes" and still exits 0, so no `build/` folder is written (the route-analysis worker's `process.exit()` takes the whole build process down). Pin the image to a fixed 1.4.x version, and make the Dockerfile fail if `build/index.js` is missing. The `ORIGIN` build argument must be set in this stage.
-  2. Runtime stage: Bun, `ffmpeg` and `uv` (copied from the official `ghcr.io/astral-sh/uv` image).
-     - yt-dlp: `uv tool install 'yt-dlp[default]==<version>'`, with `UV_TOOL_BIN_DIR` on `PATH`. The `default` extra includes mutagen, which `--embed-thumbnail` uses.
-     - `tags.py`: copy `scripts/` in, then run `uv sync --script scripts/tags.py` at build time so mutagen is already installed and the first tag edit doesn't download anything. uv also installs Python if the image doesn't have it.
-- yt-dlp is pinned to a version, with a documented way to update it, since YouTube changes often break old releases. The `player-client=android` extractor arg is a workaround that may stop working as YouTube changes.
-- Runs as a non-root user. The UID and GID can be configured so files written to the mount have the right ownership on the host.
-- `docker-compose.yml` example:
-
-  ```yaml
-  services:
-    icarus:
-      build: .
-      ports: ["3000:3000"]
-      environment:
-        ADMIN_USERNAME: admin
-        ADMIN_PASSWORD: change-me
-      volumes:
-        - ~/music:/music
-  ```
+- Multi-stage `Dockerfile`, needs BuildKit (`docker buildx`) for its cache mounts:
+  1. `uv` stage: `ghcr.io/astral-sh/uv:latest`, only used as a source to copy the `uv` and `uvx` binaries from.
+  2. `build` stage (`oven/bun:1`): copy `package.json` and `bun.lock`, `bun install`, copy the source, `bun run build`. The `ORIGIN` build argument is required here, and the stage fails with an example value if it's missing. The install uses a cache mount on Bun's download cache, so a lockfile change only downloads new or changed packages.
+  3. `release` stage (`oven/bun:1-slim`): `ffmpeg`, `ca-certificates`, `uv`, yt-dlp, `scripts/`, production dependencies (with the same cache mount) and the `build/` folder from the build stage. Starts with `bun build/index.js`.
+     - yt-dlp: `uv tool install "yt-dlp[default]"`, with `UV_TOOL_BIN_DIR=/usr/local/bin` so it's on `PATH`. The `default` extra includes mutagen, which `--embed-thumbnail` uses.
+     - `tags.py`: copy `scripts/` in, then run `uv sync --script scripts/tags.py` at build time so mutagen is already installed and the first tag edit doesn't download anything. uv also installs Python, since the image doesn't have it. Everything uv installs lives under `/opt/uv`.
+- **Versions float.** Bun (`1`, `1-slim`), uv (`latest`) and yt-dlp are unpinned, so a fresh build picks up the newest releases. yt-dlp especially needs to stay current, since YouTube changes often break old releases. Docker caches layers, so a normal rebuild doesn't fetch anything new. To update, rebuild without the cache: `docker compose build --pull --no-cache`. The `player-client=android` extractor arg is a workaround that may stop working as YouTube changes.
+- **Known Bun regression:** with Bun 1.3.4, Vite 8 and SvelteKit 3, the build stops after "Analysing routes" and still exits 0, so no `build/` folder is written (the route-analysis worker's `process.exit()` takes the whole build process down). Bun 1.4.4 works. Because Bun floats, a regression like this would show up as the `COPY --from=build /app/build` step failing.
+- **Non-root:** the image runs as the `bun` user (uid 1000) by default. To match a different host user, so files written to the mount have the right ownership, the compose file runs the container as `${PUID}:${PGID}` (`docker run --user` does the same). The image doesn't need rebuilding for a different uid: uv's cache folder, `/opt/uv/cache`, is made writable by any user, since `uv run` writes to it when it runs `tags.py`. Python and yt-dlp only need to be readable, which they already are. The variables are `PUID`/`PGID` rather than `UID`/`GID` because `UID` is a read-only shell variable in bash and zsh.
+- `docker-compose.yml` reads its settings from a `.env` file next to it (not committed): `ORIGIN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and optionally `PUID`/`PGID` (default `1000`). Downloads go to `./music` on the host.
 
 ## Error handling and edge cases
 
@@ -460,9 +450,9 @@ Each chunk is a small, self-contained commit (ideally under ~100 lines) that pas
 
 ### Phase 6 — Docker
 
-1. Add a `Dockerfile` (build + runtime stages with uv, yt-dlp, ffmpeg, and the scripts).
-2. Add `docker-compose.yml` example plus README run instructions.
-3. Add non-root user with configurable UID/GID.
+1. Add a `Dockerfile` (build + release stages with uv, yt-dlp, ffmpeg, and the scripts) plus README run instructions.
+2. Add `docker-compose.yml` plus README instructions for it.
+3. Let the container run as any uid/gid, set with `PUID`/`PGID`.
 
 ### Later / nice-to-have
 
