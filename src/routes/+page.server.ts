@@ -1,6 +1,6 @@
 import { fail } from "@sveltejs/kit";
 import { z } from "zod";
-import { MAX_CONCURRENT, MAX_JOBS, MUSIC_DIR } from "$app/env/private";
+import { MAX_CONCURRENT, MAX_JOBS, DOWNLOAD_DIR } from "$app/env/private";
 import { runDownload } from "#lib/server/downloads.ts";
 import { addJob, parseURL, processQueue, type Job } from "#lib/server/jobs.ts";
 import type { Actions } from "./$types";
@@ -25,7 +25,7 @@ export const actions = {
 
     addJob(locals.jobs, result.url, MAX_JOBS);
 
-    const runJob = (job: Job) => runDownload(job, MUSIC_DIR, locals.cancellers);
+    const runJob = (job: Job) => runDownload(job, DOWNLOAD_DIR, locals.cancellers);
 
     processQueue(locals.jobs, MAX_CONCURRENT, runJob);
 

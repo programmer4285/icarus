@@ -21,7 +21,7 @@ export async function listAudioFiles(rootDir: string): Promise<AudioFile[]> {
     }
 
     const relativePath = path.relative(rootDir, path.join(entry.parentPath, entry.name));
-    const resolvedPath = await resolveInLibrary(rootDir, relativePath);
+    const resolvedPath = await resolveInFolder(rootDir, relativePath);
     if (!resolvedPath) {
       continue;
     }
@@ -39,22 +39,36 @@ export async function listAudioFiles(rootDir: string): Promise<AudioFile[]> {
   return files;
 }
 
-export async function resolveInLibrary(
+export async function resolveInFolder(
   rootDir: string,
   relativePath: string,
 ): Promise<string | null> {
-  const libraryRoot = await realpath(rootDir);
+  const folderRoot = await realpath(rootDir);
 
   let resolvedPath: string;
   try {
-    resolvedPath = await realpath(path.resolve(libraryRoot, relativePath));
+    resolvedPath = await realpath(path.resolve(folderRoot, relativePath));
   } catch {
     return null;
   }
 
-  const isInsideLibrary = resolvedPath.startsWith(libraryRoot + path.sep);
+  const isInsideFolder = resolvedPath.startsWith(folderRoot + path.sep);
 
-  return isInsideLibrary ? resolvedPath : null;
+  return isInsideFolder ? resolvedPath : null;
+}
+
+function toSafeName(name: string): string {
+  // replace characters that are not allowed in file and folder names with "_" and,
+  // replace sequences of whitespace with a single space
+  const safeName = name
+    .replace(/["*:<>?|/\\\p{Cc}]/gu, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\./, "_");
+
+  assert(safeName, `"${name}" has no characters that can be used in a file or folder name`);
+
+  return safeName;
 }
 
 export async function renameFileByTitle(
@@ -62,14 +76,7 @@ export async function renameFileByTitle(
   trackNumber: string,
   title: string,
 ): Promise<string> {
-  // strip characters that are not allowed in filenames and,
-  // replace sequences of whitespace with a single space
-  const safeTitle = title
-    .replace(/["*:<>?|/\\\p{Cc}]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  assert(safeTitle, `the title "${title}" has no characters that can be used in a filename`);
+  const safeTitle = toSafeName(title);
 
   const filename = `${trackNumber}. ${safeTitle}.m4a`;
   const newFilePath = path.join(path.dirname(filePath), filename);
@@ -97,27 +104,14 @@ export async function renameFileByTitle(
 }
 
 export async function moveToLibrary(
-  musicDir: string,
+  downloadDir: string,
   libraryDir: string,
   filePath: string,
   albumArtist: string,
   album: string,
 ): Promise<string> {
-  // replace chars that can't be in folder names with "_"
-  const toFolderName = (name: string) => {
-    const folderName = name
-      .replace(/["*:<>?|/\\\p{Cc}]/gu, "_")
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/^\./, "_");
-
-    assert(folderName, `"${name}" has no characters that can be used in a folder name`);
-
-    return folderName;
-  };
-
-  const artistFolder = toFolderName(albumArtist);
-  const albumFolder = toFolderName(album);
+  const artistFolder = toSafeName(albumArtist);
+  const albumFolder = toSafeName(album);
   const filename = path.basename(filePath);
 
   const destinationDir = path.join(libraryDir, artistFolder, albumFolder);
@@ -135,19 +129,19 @@ export async function moveToLibrary(
     throw err;
   }
 
-  await deleteFile(musicDir, filePath);
+  await deleteFile(downloadDir, filePath);
 
   return destinationPath;
 }
 
-export async function deleteFile(musicDir: string, filePath: string): Promise<void> {
+export async function deleteFile(downloadDir: string, filePath: string): Promise<void> {
   // delete the original file
   await unlink(filePath);
 
   // delete directories that are now empty after deleting the file
-  const musicRoot = await realpath(musicDir);
+  const downloadRoot = await realpath(downloadDir);
   let dir = path.dirname(filePath);
-  while (dir.startsWith(musicRoot + path.sep)) {
+  while (dir.startsWith(downloadRoot + path.sep)) {
     try {
       await rmdir(dir);
     } catch {

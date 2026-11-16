@@ -3,11 +3,11 @@ set -euo pipefail
 
 # if the script does not have exactly 2 args, print a usage message
 if [ $# -ne 2 ]; then
-  echo "usage: download.sh <music-dir> <url>" >&2
+  echo "usage: download.sh <download-dir> <url>" >&2
   exit 2
 fi
 
-music_dir="$1"
+download_dir="$1"
 url="$2"
 
 # include track number if available
@@ -22,7 +22,7 @@ exec yt-dlp \
   --extract-audio \
   --audio-format m4a \
   --audio-quality 0 \
-  --paths "$music_dir" \
+  --paths "$download_dir" \
   --output "$output_template" \
   --no-playlist \
   --force-overwrites \

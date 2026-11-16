@@ -38,7 +38,14 @@
       </label>
       <label>
         <span>Date</span>
-        <input name="date" value={data.tags.date} required />
+        <input
+          name="date"
+          value={data.tags.date}
+          required
+          placeholder="YYYY/MM/DD"
+          pattern={String.raw`\d{4}/\d{2}/\d{2}`}
+          title="YYYY/MM/DD"
+        />
       </label>
 
     <div class="row">

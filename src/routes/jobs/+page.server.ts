@@ -1,5 +1,5 @@
 import { fail } from "@sveltejs/kit";
-import { MAX_CONCURRENT, MAX_JOBS, MUSIC_DIR } from "$app/env/private";
+import { MAX_CONCURRENT, MAX_JOBS, DOWNLOAD_DIR } from "$app/env/private";
 import { runDownload } from "#lib/server/downloads.ts";
 import {
   addJob,
@@ -38,7 +38,7 @@ export const actions = {
 
     addJob(locals.jobs, job.url, MAX_JOBS);
 
-    const runJob = (job: Job) => runDownload(job, MUSIC_DIR, locals.cancellers);
+    const runJob = (job: Job) => runDownload(job, DOWNLOAD_DIR, locals.cancellers);
 
     processQueue(locals.jobs, MAX_CONCURRENT, runJob);
   },

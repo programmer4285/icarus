@@ -1,12 +1,12 @@
 import path from "node:path";
 import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
-import { LIBRARY_DIR, MUSIC_DIR } from "$app/env/private";
+import { LIBRARY_DIR, DOWNLOAD_DIR } from "$app/env/private";
 import {
   deleteFile,
   moveToLibrary,
   renameFileByTitle,
-  resolveInLibrary,
+  resolveInFolder,
 } from "#lib/server/files.ts";
 import { readTags, tagToLabel, TAGS, writeTags, type Tags } from "#lib/server/tags.ts";
 import type { Actions, PageServerLoad } from "./$types";
@@ -27,7 +27,10 @@ const tagFormSchema = z.object({
   artist: requiredString("Artist"),
   albumArtist: requiredString("Album Artist"),
   album: requiredString("Album"),
-  date: requiredString("Date"),
+  date: requiredString("Date")
+    .regex(/^\d{4}\/\d{2}\/\d{2}$/, "Date must be YYYY/MM/DD")
+    .transform((date) => date.replaceAll("/", "-"))
+    .pipe(z.iso.date("Date is not a valid date")),
   trackNumber: requiredNumber("Track Number"),
   totalTracks: requiredNumber("Total Tracks"),
   discNumber: requiredNumber("Disc Number"),
@@ -35,7 +38,7 @@ const tagFormSchema = z.object({
 });
 
 export const load: PageServerLoad = async ({ params }) => {
-  const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
+  const filePath = await resolveInFolder(DOWNLOAD_DIR, params.path);
   if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
     error(404, "File not found");
   }
@@ -46,12 +49,16 @@ export const load: PageServerLoad = async ({ params }) => {
     const [trackNumber = "", totalTracks = ""] = rawTags.tracknumber.split("/");
     const [discNumber = "", totalDiscs = ""] = rawTags.discnumber.split("/");
 
+    // NOTE: yt-dlp formats dates as YYYYMMDD. the required tag
+    // format is YYYY-MM-DD
+    const date = rawTags.date.replaceAll("-", "/");
+
     const tags = {
       title: rawTags.title,
       artist: rawTags.artist,
       albumArtist: rawTags.albumartist,
       album: rawTags.album,
-      date: rawTags.date,
+      date,
       trackNumber,
       totalTracks,
       discNumber,
@@ -67,7 +74,7 @@ export const load: PageServerLoad = async ({ params }) => {
 
 export const actions = {
   save: async ({ params, request }) => {
-    const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
+    const filePath = await resolveInFolder(DOWNLOAD_DIR, params.path);
     if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
       error(404, "File not found");
     }
@@ -107,7 +114,7 @@ export const actions = {
     // strip the root directory from the new path for the redirect URL
     // ex:
     //    params.path     = "path/to/song.m4a"
-    //    newFilePath     = "/music/path/to/newSong.m4a"
+    //    newFilePath     = "/downloads/path/to/newSong.m4a"
     //    newRelativePath = "path/to/newSong.m4a"
     const newRelativePath = path.join(path.dirname(params.path), path.basename(newFilePath));
 
@@ -118,7 +125,7 @@ export const actions = {
   },
 
   move: async ({ params }) => {
-    const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
+    const filePath = await resolveInFolder(DOWNLOAD_DIR, params.path);
     if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
       error(404, "File not found");
     }
@@ -141,7 +148,7 @@ export const actions = {
     let destinationPath: string;
     try {
       destinationPath = await moveToLibrary(
-        MUSIC_DIR,
+        DOWNLOAD_DIR,
         LIBRARY_DIR,
         filePath,
         tags.albumartist,
@@ -158,13 +165,13 @@ export const actions = {
   },
 
   delete: async ({ params }) => {
-    const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
+    const filePath = await resolveInFolder(DOWNLOAD_DIR, params.path);
     if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
       error(404, "File not found");
     }
 
     try {
-      await deleteFile(MUSIC_DIR, filePath);
+      await deleteFile(DOWNLOAD_DIR, filePath);
     } catch (err) {
       console.error(err);
       return fail(500, { error: `Could not delete the file: ${err}` });

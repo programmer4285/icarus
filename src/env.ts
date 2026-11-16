@@ -19,18 +19,18 @@ export const variables = defineEnvVars({
     description: "Set to true when the app is served over HTTPS",
     schema: z.stringbool().default(false),
   },
-  MUSIC_DIR: {
+  DOWNLOAD_DIR: {
     description: "Folder where audio files are downloaded and browsed",
     schema: z
       .string()
-      .default("/music")
+      .default("downloads")
       .transform((val) => path.resolve(val)),
   },
   LIBRARY_DIR: {
     description: "Library folder that tagged files are moved into as Album Artist/Album/file",
     schema: z
       .string()
-      .default("/library")
+      .default("library")
       .transform((val) => path.resolve(val)),
   },
   MAX_JOBS: {

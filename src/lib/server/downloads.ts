@@ -8,10 +8,10 @@ const PROGRESS_PREFIX = "[progress]";
 
 export async function runDownload(
   job: Job,
-  musicDir: string,
+  downloadDir: string,
   cancellers: Cancellers,
 ): Promise<void> {
-  const proc = spawn(DOWNLOAD_SCRIPT, [musicDir, job.url], { detached: true });
+  const proc = spawn(DOWNLOAD_SCRIPT, [downloadDir, job.url], { detached: true });
 
   cancellers.set(job.id, () => {
     const hasExited = proc.exitCode !== null || proc.signalCode !== null;
@@ -27,7 +27,7 @@ export async function runDownload(
         job.progress = progress;
       }
     } else if (line.trim()) {
-      job.files.push(path.relative(musicDir, line));
+      job.files.push(path.relative(downloadDir, line));
     }
   });
 
