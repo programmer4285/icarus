@@ -21,6 +21,29 @@ const tagsSchema = z.object({
 
 export type Tags = z.infer<typeof tagsSchema>;
 
+export type Tag = keyof Tags;
+
+export const TAGS = tagsSchema.keyof().options;
+
+export function tagToLabel(tag: Tag): string {
+  switch (tag) {
+    case "title":
+      return "Title";
+    case "artist":
+      return "Artist";
+    case "albumartist":
+      return "Album Artist";
+    case "album":
+      return "Album";
+    case "date":
+      return "Date";
+    case "tracknumber":
+      return "Track";
+    case "discnumber":
+      return "Disc";
+  }
+}
+
 export async function readTags(filePath: string): Promise<Tags> {
   try {
     const { stdout } = await execFileAsync("uv", ["run", "--quiet", TAGS_SCRIPT, "read", filePath]);

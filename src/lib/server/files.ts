@@ -1,4 +1,5 @@
-import { readdir, realpath, rename, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { copyFile, mkdir, readdir, realpath, rename, rmdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { assert } from "es-toolkit";
 
@@ -93,4 +94,61 @@ export async function renameFileByTitle(
   await rename(filePath, newFilePath);
 
   return newFilePath;
+}
+
+export async function moveToLibrary(
+  musicDir: string,
+  libraryDir: string,
+  filePath: string,
+  albumArtist: string,
+  album: string,
+): Promise<string> {
+  // replace chars that can't be in folder names with "_"
+  const toFolderName = (name: string) => {
+    const folderName = name
+      .replace(/["*:<>?|/\\\p{Cc}]/gu, "_")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^\./, "_");
+
+    assert(folderName, `"${name}" has no characters that can be used in a folder name`);
+
+    return folderName;
+  };
+
+  const artistFolder = toFolderName(albumArtist);
+  const albumFolder = toFolderName(album);
+  const filename = path.basename(filePath);
+
+  const destinationDir = path.join(libraryDir, artistFolder, albumFolder);
+  await mkdir(destinationDir, { recursive: true });
+
+  const destinationPath = path.join(destinationDir, filename);
+  try {
+    await copyFile(filePath, destinationPath, constants.COPYFILE_EXCL);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new Error(
+        `a file named "${filename}" already exists in ${artistFolder}/${albumFolder}`,
+      );
+    }
+    throw err;
+  }
+
+  // delete the original file
+  await unlink(filePath);
+
+  // delete directories that are now empty after moving the file
+  const musicRoot = await realpath(musicDir);
+  let dir = path.dirname(filePath);
+  while (dir.startsWith(musicRoot + path.sep)) {
+    try {
+      await rmdir(dir);
+    } catch {
+      break;
+    }
+    dir = path.dirname(dir);
+  }
+
+  return destinationPath;
 }

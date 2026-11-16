@@ -1,9 +1,9 @@
 import path from "node:path";
 import { error, fail, redirect } from "@sveltejs/kit";
 import { z } from "zod";
-import { MUSIC_DIR } from "$app/env/private";
-import { renameFileByTitle, resolveInLibrary } from "#lib/server/files.ts";
-import { readTags, writeTags } from "#lib/server/tags.ts";
+import { LIBRARY_DIR, MUSIC_DIR } from "$app/env/private";
+import { moveToLibrary, renameFileByTitle, resolveInLibrary } from "#lib/server/files.ts";
+import { readTags, tagToLabel, TAGS, writeTags, type Tags } from "#lib/server/tags.ts";
 import type { Actions, PageServerLoad } from "./$types";
 
 const requiredString = (label: string) =>
@@ -61,7 +61,7 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions = {
-  default: async ({ params, request }) => {
+  save: async ({ params, request }) => {
     const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
     if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
       error(404, "File not found");
@@ -110,5 +110,45 @@ export const actions = {
 
     // remember redirect throws :) don't put this in a try/catch
     redirect(303, `${newURL}?saved=true`);
+  },
+
+  move: async ({ params }) => {
+    const filePath = await resolveInLibrary(MUSIC_DIR, params.path);
+    if (!filePath || !filePath.toLowerCase().endsWith(".m4a")) {
+      error(404, "File not found");
+    }
+
+    let tags: Tags;
+    try {
+      tags = await readTags(filePath);
+    } catch (err) {
+      console.error(err);
+      return fail(500, { error: `Could not read the tags of ${params.path}` });
+    }
+
+    const missingTags = TAGS.filter((tag) => !tags[tag].trim()).map(tagToLabel);
+    if (missingTags.length > 0) {
+      return fail(400, {
+        error: `Save all tags before moving. Missing: ${missingTags.join(", ")}`,
+      });
+    }
+
+    let destinationPath: string;
+    try {
+      destinationPath = await moveToLibrary(
+        MUSIC_DIR,
+        LIBRARY_DIR,
+        filePath,
+        tags.albumartist,
+        tags.album,
+      );
+    } catch (err) {
+      console.error(err);
+      return fail(500, { error: `Could not move the file to the library: ${err}` });
+    }
+
+    const libraryPath = path.relative(LIBRARY_DIR, destinationPath);
+
+    redirect(303, `/files?moved=${encodeURIComponent(libraryPath)}`);
   },
 } satisfies Actions;

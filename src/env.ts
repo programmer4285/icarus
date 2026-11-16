@@ -26,6 +26,13 @@ export const variables = defineEnvVars({
       .default("/music")
       .transform((val) => path.resolve(val)),
   },
+  LIBRARY_DIR: {
+    description: "Library folder that tagged files are moved into as Album Artist/Album/file",
+    schema: z
+      .string()
+      .default("/library")
+      .transform((val) => path.resolve(val)),
+  },
   MAX_JOBS: {
     description: "Maximum number of jobs kept in the job history",
     schema: z

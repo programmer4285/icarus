@@ -16,10 +16,10 @@ PGID=1000
 
 `ORIGIN` must match the URL you open in the browser, e.g. `http://192.168.1.10:3000`. It's built into the image, so changing it means rebuilding. Use `id -u` and `id -g` to find your `PUID` and `PGID`.
 
-Then start it. Downloads are saved to `./music`:
+Then start it. Downloads are saved to `./music`, and files moved to the library go to `./library/<Album Artist>/<Album>/`:
 
 ```zsh
-mkdir -p music
+mkdir -p music library
 docker compose up -d --build
 ```
 

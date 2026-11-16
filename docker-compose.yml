@@ -14,3 +14,4 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
     volumes:
       - ./music:/music
+      - ./library:/library

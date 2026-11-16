@@ -17,6 +17,7 @@
 
   <form
     method="POST"
+    action="?/save"
     use:enhance
   >
       <label>
@@ -64,7 +65,10 @@
       <p class="message saved" role="status">Tags updated!</p>
     {/if}
 
-    <button type="submit">Save</button>
+    <div class="buttons">
+      <button type="submit">Save</button>
+      <button type="submit" formaction="?/move" class="secondary">Move to library</button>
+    </div>
   </form>
 </div>
 
@@ -136,9 +140,14 @@
   }
 
   .message,
-  button {
+  .buttons {
     grid-column: 1 / -1;
     margin: 0;
+  }
+
+  .buttons {
+    display: flex;
+    gap: var(--space-3);
   }
 
   .error {
@@ -150,7 +159,6 @@
   }
 
   button {
-    justify-self: start;
     padding-inline: var(--space-4);
     background: var(--color-button);
     border-color: var(--color-button);
@@ -162,5 +170,16 @@
   button:hover {
     background: var(--color-button-hover);
     border-color: var(--color-button-hover);
+  }
+
+  button.secondary {
+    background: transparent;
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+
+  button.secondary:hover {
+    background: var(--color-background);
+    border-color: var(--color-muted);
   }
 </style>

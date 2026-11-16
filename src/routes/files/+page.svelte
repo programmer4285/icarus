@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import type { PageProps } from "./$types";
 
   type SortColumn = "path" | "size" | "modified";
@@ -65,6 +66,10 @@
 
 <h1>Files</h1>
 
+{#if page.url.searchParams.get("moved")}
+  <p class="moved" role="status">Moved to {page.url.searchParams.get("moved")}</p>
+{/if}
+
 {#if data.files.length === 0}
   <p class="muted">No audio files found.</p>
 {:else}
@@ -114,6 +119,12 @@
 {/if}
 
 <style>
+  .moved {
+    margin: 0 0 var(--space-3);
+    color: var(--color-success);
+    word-break: break-all;
+  }
+
   .muted {
     margin: 0 0 var(--space-3);
     color: var(--color-muted);
